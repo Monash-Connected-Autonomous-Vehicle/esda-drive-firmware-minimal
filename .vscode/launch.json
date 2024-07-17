@@ -1,0 +1,45 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'esda-drive-firmware-minimal'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=esda-drive-firmware-minimal",
+                    "--package=esda-drive-firmware-minimal"
+                ],
+                "filter": {
+                    "name": "esda-drive-firmware-minimal",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'esda-drive-firmware-minimal'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=esda-drive-firmware-minimal",
+                    "--package=esda-drive-firmware-minimal"
+                ],
+                "filter": {
+                    "name": "esda-drive-firmware-minimal",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

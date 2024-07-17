@@ -1,0 +1,56 @@
+[package]
+name = "esda-drive-firmware-minimal"
+version = "0.1.0"
+authors = ["BMCG0011"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+esp-backtrace = { version = "0.13.0", features = [
+    "esp32",
+    "exception-handler",
+    "panic-handler",
+    "println",
+] }
+esp-hal = { version = "0.19.0", features = [ "esp32" ] }
+esp-println = { version = "0.10.0", features = ["esp32", "log"] }
+log = { version = "0.4.21" }
+embedded-io = "0.6.1"
+esp-wifi = { version = "0.7.1", features = [
+    "esp32",
+    "phy-enable-usb",
+    "utils",
+    "wifi",
+    "esp-now"
+] }
+heapless = { version = "0.8.0", default-features = false }
+smoltcp = { version = "0.11.0", default-features = false, features = [
+    "medium-ethernet",
+    "proto-dhcpv4",
+    "proto-igmp",
+    "proto-ipv4",
+    "socket-dhcpv4",
+    "socket-icmp",
+    "socket-raw",
+    "socket-tcp",
+    "socket-udp",
+] }
+embassy-executor = { version = "0.5.0", features = ["integrated-timers"] }
+esp-hal-embassy = { version = "0.2.0", features = ["log", "esp32"] }
+static_cell = "2.1.0"
+embassy-time = { version = "0.3.1", default-features = false }
+critical-section = { version = "1.1.2", default-features = false }
+atomic_float = { version = "1.0.0", default-features = false }
+[profile.dev]
+# Rust debug is too slow.
+# For debug builds always builds with some optimization
+opt-level = "s"
+
+[profile.release]
+codegen-units = 1 # LLVM can perform better optimizations using a single thread
+debug = 2
+debug-assertions = false
+incremental = false
+lto = 'fat'
+opt-level = 's'
+overflow-checks = false
