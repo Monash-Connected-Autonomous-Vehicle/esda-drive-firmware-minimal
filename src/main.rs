@@ -21,7 +21,12 @@ use esp_hal::{
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 use heapless::spsc::Queue;
-
+use esp_println::println;
+use esp_wifi::{
+    esp_now::{PeerInfo, BROADCAST_ADDRESS},
+    initialize,
+    EspWifiInitFor,
+};
 mod interface;
 
 // 18, 19, 21
@@ -56,7 +61,7 @@ async fn main(spawner: Spawner) {
 
     let timer: PeriodicTimer<Timer<>> = PeriodicTimer::new(
         esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG0, &clocks, None)
-        .timer0
+        .timer0;
         .into(),
     );
 
