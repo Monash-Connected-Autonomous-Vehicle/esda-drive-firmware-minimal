@@ -189,6 +189,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "embassy-futures"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f878075b9794c1e4ac788c95b728f26aa6366d32eeb10c7051389f898f7d067"
+
+[[package]]
 name = "embassy-time"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -326,6 +332,7 @@ dependencies = [
  "atomic_float",
  "critical-section",
  "embassy-executor",
+ "embassy-futures",
  "embassy-time",
  "embedded-io",
  "esp-backtrace",

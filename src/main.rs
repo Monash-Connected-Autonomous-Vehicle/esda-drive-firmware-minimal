@@ -19,7 +19,9 @@ use esp_hal::{
     
 };
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Timer};
+use embassy_futures::select::{select,Either};
+use embassy_time::{Duration, Timer, Ticker};
+
 use heapless::spsc::Queue;
 use esp_println::println;
 use esp_wifi::{
@@ -73,6 +75,75 @@ async fn main(spawner: Spawner) {
         &clocks,
     )
     .unwrap();
+
+    let wifi = peripherals.WIFI;
+    let esp_now = esp_wifi::esp_now::EspNow::new(&init, wifi).unwrap();
+    println!("esp-now version {}", esp_now.get_version().unwrap());
+
+    #[cfg(feature = "esp32")]
+    {
+        let timg1 = esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG1, &clocks, None);
+        esp_hal_embassy::init(
+            &clocks,
+            mk_static!(
+                [OneShotTimer<ErasedTimer>; 1],
+                [OneShotTimer::new(timg1.timer0.into())]
+            ),
+        );
+    }
+    // #[cfg(not(feature = "esp32"))]
+    // {
+    //     let systimer = esp_hal::timer::systimer::SystemTimer::new(peripherals.SYSTIMER);
+    //     esp_hal_embassy::init(
+    //         &clocks,
+    //         mk_static!(
+    //             [OneShotTimer<ErasedTimer>; 1],
+    //             [OneShotTimer::new(systimer.alarm0.into())]
+    //         ),
+    //     );
+    // }
+
+
+    let mut ticker = Ticker::every(Duration::from_secs(5));
+    
+
+    loop {
+        let res = select(ticker.next(), async {
+            let r = esp_now.receive_async().await;
+            println!("Received {:?}", r);
+            if r.info.dst_address == BROADCAST_ADDRESS {
+                if !esp_now.peer_exists(&r.info.src_address) {
+                    esp_now
+                        .add_peer(PeerInfo {
+                            peer_address: r.info.src_address,
+                            lmk: None,
+                            channel: None,
+                            encrypt: false,
+                        })
+                        .unwrap();
+                }
+                let status = esp_now.send_async(&r.info.src_address, b"Hello Peer").await;
+                println!("Send hello to peer status: {:?}", status);
+            }
+        })
+        .await;
+
+        match res {
+            Either::First(_) => {
+                println!("Send");
+                let status = esp_now.send_async(&BROADCAST_ADDRESS, b"0123456789").await;
+                println!("Send broadcast status: {:?}", status)
+            }
+            Either::Second(_) => (),
+        }
+    }
+
+
+
+
+
+
+
 
     let encoder_left_a = io.pins.gpio18;
     let encoder_left_d = io.pins.gpio19;
