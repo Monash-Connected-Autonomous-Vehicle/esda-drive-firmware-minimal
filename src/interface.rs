@@ -15,5 +15,5 @@ pub enum ESDAMessageID {
 
 pub struct ESDAMessage {
     id: ESDAMessageID,
-    data: f32
+    data: f32,
 }

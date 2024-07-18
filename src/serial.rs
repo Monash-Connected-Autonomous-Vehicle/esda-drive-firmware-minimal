@@ -1,16 +1,13 @@
-use core::{cell::RefCell, sync::atomic::Ordering};
+use core::cell::RefCell;
 
-use atomic_float::AtomicF32;
 use core::fmt::Write;
 use critical_section::Mutex;
-use embassy_executor::{task, Spawner};
-use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_hal::{
     clock::Clocks,
     gpio::{InputPin, OutputPin},
     peripheral::Peripheral,
-    peripherals::{Peripherals, UART0},
+    peripherals::UART0,
     prelude::*,
     uart::{
         config::{AtCmdConfig, Config},

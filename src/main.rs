@@ -54,7 +54,7 @@ async fn run() {
 async fn main(_spawner: Spawner) {
     esp_println::logger::init_logger_from_env();
 
-    esp_println::println!("Init!");
+    esp_println::println!("Beginning Asterius Firmware Initialisation!");
     let peripherals = Peripherals::take();
     let system = SystemControl::new(peripherals.SYSTEM);
     let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
@@ -64,10 +64,13 @@ async fn main(_spawner: Spawner) {
     io.set_interrupt_handler(handler);
 
     // Initialise the serial connection
+    esp_println::println!("Initialising Serial Connection...");
     serial::initialise_serial(peripherals.UART0, io.pins.gpio1, io.pins.gpio3, &clocks);
+    esp_println::println!("Serial Connection Initialised!");
 
     let delay = Delay::new(&clocks);
 
+    esp_println::println!("Initialisng Rotary Encoders...");
     let encoder_left_a = io.pins.gpio18;
     let encoder_left_d = io.pins.gpio19;
     let encoder_right_a = io.pins.gpio34;
@@ -91,6 +94,8 @@ async fn main(_spawner: Spawner) {
     critical_section::with(|cs| {
         ENCODER_RIGHT_D.borrow_ref_mut(cs).replace(encoder_right_d);
     });
+    esp_println::println!("Initialisng Rotary Encoders...");
+
 
     esp_println::println!("Fully Initialised!");
 
