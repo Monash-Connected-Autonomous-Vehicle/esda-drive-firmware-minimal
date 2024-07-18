@@ -29,7 +29,7 @@ use esp_wifi::{
     initialize,
     EspWifiInitFor,
 };
-mod interface;
+mod esda_interface;
 
 // 18, 19, 21
 static ENCODER_LEFT_A: Mutex<RefCell<Option<Input<gpio::Gpio18>>>> = Mutex::new(RefCell::new(None));
