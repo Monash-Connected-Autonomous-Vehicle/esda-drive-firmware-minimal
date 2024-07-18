@@ -28,6 +28,8 @@ use esp_hal::{
 
 mod serial;
 
+mod interface;
+
 // 18, 19, 21
 static ENCODER_LEFT_A: Mutex<RefCell<Option<Input<gpio::Gpio18>>>> = Mutex::new(RefCell::new(None));
 static ENCODER_LEFT_D: Mutex<RefCell<Option<Input<gpio::Gpio19>>>> = Mutex::new(RefCell::new(None));
