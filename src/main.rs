@@ -17,15 +17,21 @@ use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
     delay::Delay,
-    gpio::{self, Event, Input, Io, Level, Output, Pull},
+    gpio::{self, Event, Input, Io, Level, Pull},
     macros::ram,
-    peripherals::Peripherals,
+    peripherals::{Peripherals, UART0},
     prelude::*,
     system::SystemControl,
+    uart::{
+        config::{AtCmdConfig, Config},
+        Uart,
+    }, Blocking,
 };
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
-use heapless::spsc::Queue;
+use core::fmt::Write;
+
+static SERIAL: Mutex<RefCell<Option<Uart<UART0, Blocking>>>> = Mutex::new(RefCell::new(None));
 
 // 18, 19, 21
 static ENCODER_LEFT_A: Mutex<RefCell<Option<Input<gpio::Gpio18>>>> = Mutex::new(RefCell::new(None));
@@ -46,7 +52,7 @@ async fn run() {
 }
 
 #[main]
-async fn main(spawner: Spawner) {
+async fn main(_spawner: Spawner) {
     esp_println::logger::init_logger_from_env();
 
     esp_println::println!("Init!");
@@ -55,16 +61,40 @@ async fn main(spawner: Spawner) {
     let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
 
     let mut io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
+
+    let delay = Delay::new(&clocks);
+
     io.set_interrupt_handler(handler);
+
+    // Default pins for Uart/Serial communication
+    let (tx_pin, rx_pin) = (io.pins.gpio1, io.pins.gpio3);
+
+    let serial_config = Config { baudrate: 115200, ..Default::default()}.rx_fifo_full_threshold(30);
+    let mut uart0 = Uart::new_with_config(
+        peripherals.UART0,
+        serial_config,
+        &clocks,
+        Some(serial_interrupt_handler),
+        tx_pin,
+        rx_pin,
+    ).unwrap();
+
+    critical_section::with(|cs| {
+        uart0.set_at_cmd(AtCmdConfig::new(None, None, None, b'#', None));
+        uart0.listen_at_cmd();
+        uart0.listen_rx_fifo_full();
+
+        SERIAL.borrow_ref_mut(cs).replace(uart0);
+    });
 
     let encoder_left_a = io.pins.gpio18;
     let encoder_left_d = io.pins.gpio19;
     let encoder_right_a = io.pins.gpio34;
     let encoder_right_d = io.pins.gpio33;
     let mut encoder_left_a = Input::new(encoder_left_a, Pull::Down);
-    let mut encoder_left_d = Input::new(encoder_left_d, Pull::Down);
+    let encoder_left_d = Input::new(encoder_left_d, Pull::Down);
     let mut encoder_right_a = Input::new(encoder_right_a, Pull::Down);
-    let mut encoder_right_d = Input::new(encoder_right_d, Pull::Down);
+    let encoder_right_d = Input::new(encoder_right_d, Pull::Down);
 
     critical_section::with(|cs| {
         encoder_left_a.listen(Event::RisingEdge);
@@ -95,7 +125,15 @@ async fn main(spawner: Spawner) {
     //     esp_println::println!("Bing!");
     //     Timer::after(Duration::from_millis(5_000)).await;
     // }
+    loop {
+        critical_section::with(|cs| {
+            let mut serial = SERIAL.borrow_ref_mut(cs);
+            let serial = serial.as_mut().unwrap();
+            writeln!(serial, "Hello World! Send a single `#` character or send at least 30 characters and see the interrupts trigger.").ok();
+        });
 
+        delay.delay(1.secs());
+    }
 
 }
 
@@ -141,5 +179,30 @@ fn handler() {
                 .unwrap()
                 .clear_interrupt()
         }
+    });
+}
+
+#[handler]
+pub fn serial_interrupt_handler() {
+    critical_section::with(|cs| {
+        let mut serial = SERIAL.borrow_ref_mut(cs);
+        let serial = serial.as_mut().unwrap();
+
+        let mut cnt = 0;
+        while let nb::Result::Ok(_c) = serial.read_byte() {
+            cnt += 1;
+        }
+        writeln!(serial, "Read {} bytes", cnt,).ok();
+
+        writeln!(
+            serial,
+            "Interrupt AT-CMD: {} RX-FIFO-FULL: {}",
+            serial.at_cmd_interrupt_set(),
+            serial.rx_fifo_full_interrupt_set(),
+        )
+        .ok();
+
+        serial.reset_at_cmd_interrupt();
+        serial.reset_rx_fifo_full_interrupt();
     });
 }
