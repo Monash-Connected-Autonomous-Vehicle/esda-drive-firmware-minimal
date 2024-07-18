@@ -51,7 +51,7 @@ async fn run() {
 }
 
 #[main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     esp_println::logger::init_logger_from_env();
 
     esp_println::println!("Beginning Asterius Firmware Initialisation!");
@@ -65,7 +65,7 @@ async fn main(_spawner: Spawner) {
 
     // Initialise the serial connection
     esp_println::println!("Initialising Serial Connection...");
-    serial::initialise_serial(peripherals.UART0, io.pins.gpio1, io.pins.gpio3, &clocks);
+    let _spawner = serial::init(peripherals.UART0, io.pins.gpio1, io.pins.gpio3, peripherals.TIMG1, &clocks, spawner);
     esp_println::println!("Serial Connection Initialised!");
 
     let delay = Delay::new(&clocks);
@@ -95,7 +95,6 @@ async fn main(_spawner: Spawner) {
         ENCODER_RIGHT_D.borrow_ref_mut(cs).replace(encoder_right_d);
     });
     esp_println::println!("Initialisng Rotary Encoders...");
-
 
     esp_println::println!("Fully Initialised!");
 

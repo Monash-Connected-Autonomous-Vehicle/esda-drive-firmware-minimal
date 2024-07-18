@@ -218,6 +218,7 @@ dependencies = [
  "embedded-io-async",
  "futures-util",
  "heapless",
+ "log",
 ]
 
 [[package]]
@@ -385,8 +386,10 @@ dependencies = [
  "critical-section",
  "embassy-executor",
  "embassy-futures",
+ "embassy-sync 0.6.0",
  "embassy-time",
  "embedded-io",
+ "embedded-io-async",
  "esp-backtrace",
  "esp-hal",
  "esp-hal-embassy",
