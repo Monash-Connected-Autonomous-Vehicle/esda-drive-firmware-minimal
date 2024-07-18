@@ -27,7 +27,7 @@ use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 use heapless::spsc::Queue;
 
-mod interface;
+mod esda_interface;
 
 // 18, 19, 21
 static ENCODER_LEFT_A: Mutex<RefCell<Option<Input<gpio::Gpio18>>>> = Mutex::new(RefCell::new(None));
