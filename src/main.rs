@@ -59,11 +59,20 @@ async fn main(spawner: Spawner) {
     let mut io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
     io.set_interrupt_handler(handler);
 
-    let timer: PeriodicTimer<Timer<>> = PeriodicTimer::new(
+    let timer = PeriodicTimer::new(
         esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG0, &clocks, None)
-        .timer0;
+        .timer0
         .into(),
     );
+
+    let init = initialize(
+        EspWifiInitFor::Wifi,
+        timer,
+        Rng::new(peripherals.RNG),
+        peripherals.RADIO_CLK,
+        &clocks,
+    )
+    .unwrap();
 
     let encoder_left_a = io.pins.gpio18;
     let encoder_left_d = io.pins.gpio19;
