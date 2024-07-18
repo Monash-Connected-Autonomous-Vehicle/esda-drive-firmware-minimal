@@ -15,17 +15,18 @@ use atomic_float::AtomicF32;
 use critical_section::Mutex;
 use esp_backtrace as _;
 use esp_hal::{
-    clock::ClockControl,
-    delay::Delay,
-    gpio::{self, Event, Input, Io, Level, Output, Pull},
-    macros::ram,
-    peripherals::Peripherals,
-    prelude::*,
-    system::SystemControl,
+    clock::ClockControl, delay::Delay, gpio::{self, Event, Input, Io, Level, Output, Pull}, macros::ram, peripherals::Peripherals, prelude::*, rng::Rng, system::SystemControl, timer::{self, ErasedTimer, OneShotTimer, PeriodicTimer}
+    
 };
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 use heapless::spsc::Queue;
+
+
+
+
+
+
 
 // 18, 19, 21
 static ENCODER_LEFT_A: Mutex<RefCell<Option<Input<gpio::Gpio18>>>> = Mutex::new(RefCell::new(None));
@@ -57,6 +58,12 @@ async fn main(spawner: Spawner) {
     let mut io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
     io.set_interrupt_handler(handler);
 
+    let timer: PeriodicTimer<Timer<>> = PeriodicTimer::new(
+        esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG0, &clocks, None)
+        .timer0
+        .into(),
+    );
+
     let encoder_left_a = io.pins.gpio18;
     let encoder_left_d = io.pins.gpio19;
     let encoder_right_a = io.pins.gpio34;
@@ -65,6 +72,8 @@ async fn main(spawner: Spawner) {
     let mut encoder_left_d = Input::new(encoder_left_d, Pull::Down);
     let mut encoder_right_a = Input::new(encoder_right_a, Pull::Down);
     let mut encoder_right_d = Input::new(encoder_right_d, Pull::Down);
+
+    
 
     critical_section::with(|cs| {
         encoder_left_a.listen(Event::RisingEdge);
