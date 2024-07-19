@@ -6,6 +6,7 @@
 //% CHIPS: esp32 esp32c2 esp32c3 esp32c6 esp32h2 esp32s2 esp32s3
 //% FEATURES: embassy esp-hal-embassy/integrated-timers
 
+
 #![no_std]
 #![no_main]
 
@@ -21,15 +22,15 @@ use esp_hal::{
 use embassy_executor::Spawner;
 use embassy_futures::select::{select,Either};
 use embassy_time::{Duration, Timer, Ticker};
-
+use static_cell::StaticCell;
 use heapless::spsc::Queue;
 use esp_println::println;
 use esp_wifi::{
-    esp_now::{PeerInfo, BROADCAST_ADDRESS},
-    initialize,
-    EspWifiInitFor,
+    current_millis, esp_now::{PeerInfo, BROADCAST_ADDRESS}, initialize, EspWifiInitFor
 };
 mod esda_interface;
+
+
 
 // 18, 19, 21
 static ENCODER_LEFT_A: Mutex<RefCell<Option<Input<gpio::Gpio18>>>> = Mutex::new(RefCell::new(None));
@@ -77,7 +78,7 @@ async fn main(spawner: Spawner) {
     .unwrap();
 
     let wifi = peripherals.WIFI;
-    let esp_now = esp_wifi::esp_now::EspNow::new(&init, wifi).unwrap();
+    let mut esp_now = esp_wifi::esp_now::EspNow::new(&init, wifi).unwrap();
     println!("esp-now version {}", esp_now.get_version().unwrap());
 
     #[cfg(feature = "esp32")]
@@ -105,45 +106,86 @@ async fn main(spawner: Spawner) {
 
 
     let mut ticker = Ticker::every(Duration::from_secs(5));
-    
+    let mut next_send_time = current_millis();
+
 
     loop {
-        let res = select(ticker.next(), async {
-            let r = esp_now.receive_async().await;
-            println!("Received {:?}", r);
-            if r.info.dst_address == BROADCAST_ADDRESS {
-                if !esp_now.peer_exists(&r.info.src_address) {
-                    esp_now
-                        .add_peer(PeerInfo {
-                            peer_address: r.info.src_address,
-                            lmk: None,
-                            channel: None,
-                            encrypt: false,
-                        })
-                        .unwrap();
+        let res = embassy_futures::select::select(ticker.next(), async {
+            match esp_now.receive() {
+                Some(r) => {
+                    println!("Received {:?}", r);
+                    if r.info.dst_address == BROADCAST_ADDRESS {
+                        println!("Received broadcast message from {:?}", r.info.src_address);
+
+                        if !esp_now.peer_exists(&r.info.src_address) {
+                            esp_now
+                                .add_peer(PeerInfo {
+                                    peer_address: r.info.src_address,
+                                    lmk: None,
+                                    channel: None,
+                                    encrypt: false,
+                                })
+                                .unwrap();
+                        }
+                        match esp_now.send(&r.info.src_address, b"Hello Peer") {
+                            Ok(_) => println!("Send hello to peer status: Success"),
+                            Err(e) => println!("Send hello to peer status: {:?}", e),
+                        }
+                    }
                 }
-                let status = esp_now.send_async(&r.info.src_address, b"Hello Peer").await;
-                println!("Send hello to peer status: {:?}", status);
+                None => {
+                    println!("No message received");
+                }
             }
-        })
-        .await;
+        }).await;
 
         match res {
-            Either::First(_) => {
+            embassy_futures::select::Either::First(_) => {
                 println!("Send");
-                let status = esp_now.send_async(&BROADCAST_ADDRESS, b"0123456789").await;
-                println!("Send broadcast status: {:?}", status)
+                match esp_now.send(&BROADCAST_ADDRESS, b"0123456789") {
+                    Ok(_) => println!("Send broadcast status: Success"),
+                    Err(e) => println!("Send broadcast status: {:?}", e),
+                }
             }
-            Either::Second(_) => (),
+            embassy_futures::select::Either::Second(_) => (),
         }
     }
 
+    // loop {
+    //     let res: Either<(), ()> = select(ticker.next(), async {
+    //         let r = esp_now.receive_async().await;
+    //         println!("Received {:?}", r);
+    //         if r.info.dst_address == BROADCAST_ADDRESS {
+    //             if !esp_now.peer_exists(&r.info.src_address) {
+    //                 esp_now
+    //                     .add_peer(PeerInfo {
+    //                         peer_address: r.info.src_address,
+    //                         lmk: None,
+    //                         channel: None,
+    //                         encrypt: false,
+    //                     })
+    //                     .unwrap();
+    //             }
+    //             let status = esp_now.send_async(&r.info.src_address, b"Hello Peer").await;
+    //             println!("Send hello to peer status: {:?}", status);
+    //         }
+    //     })
+    //     .await;
+
+    //     match res {
+    //         Either::First(_) => {
+    //             println!("Send");
+    //             let status = esp_now.send_async(&BROADCAST_ADDRESS, b"0123456789").await;
+    //             println!("Send broadcast status: {:?}", status)
+    //         }
+    //         Either::Second(_) => (),
+    //     }
+    // }
 
 
 
 
-
-
+    // Encoder code
 
     let encoder_left_a = io.pins.gpio18;
     let encoder_left_d = io.pins.gpio19;
