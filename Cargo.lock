@@ -324,6 +324,7 @@ name = "esda-drive-firmware-minimal"
 version = "0.1.0"
 dependencies = [
  "atomic_float",
+ "byteorder",
  "critical-section",
  "embassy-executor",
  "embassy-time",
