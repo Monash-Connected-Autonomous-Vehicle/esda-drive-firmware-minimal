@@ -8,6 +8,7 @@
 
 #![no_std]
 #![no_main]
+#![allow(dead_code)]
 
 use core::{cell::RefCell, sync::atomic::Ordering};
 
