@@ -6,9 +6,11 @@ use esp_hal::{
     Async,
 };
 use esp_println::println;
-use smoltcp::wire::Icmpv4Message;
 
-use crate::{esda_interface::{self, ESDAMessage}, esda_throttle};
+use crate::{
+    esda_interface::{self},
+    esda_throttle,
+};
 
 const MESSAGE_SIZE: usize = 8;
 
@@ -18,10 +20,8 @@ pub(crate) const READ_BUF_SIZE: usize = 64;
 pub(crate) const AT_CMD: u8 = 0x04;
 
 #[embassy_executor::task]
-pub(crate) async fn writer(
-    mut tx: UartTx<'static, UART0, Async>,
-) {
-    use core::fmt::Write;
+pub(crate) async fn writer(_tx: UartTx<'static, UART0, Async>) {
+
     // embedded_io_async::Write::write(
     //     &mut tx,
     //     b"Hello async serial. Enter something ended with EOT (CTRL-D).\r\n",
@@ -55,28 +55,45 @@ pub(crate) async fn reader(
                 // Loop over the messages
                 for message_offset in 0..len / MESSAGE_SIZE {
                     // NOTE: Should be little endian :fingers_crossed_emoji:
-                    match esda_interface::ESDAMessage::from_le_bytes(&read_buffer[0 + message_offset..MESSAGE_SIZE + message_offset]) {
+                    match esda_interface::ESDAMessage::from_le_bytes(
+                        &read_buffer[0 + message_offset..MESSAGE_SIZE + message_offset],
+                    ) {
                         // If we got a valid message
                         Ok(message) => {
                             match message.id {
                                 // Forward throttle commands to throttle driver via signalling channel
-                                esda_interface::ESDAMessageID::SetTargetVelLeft => throttle_command_signal.signal(esda_throttle::ThrottleSetCommand::SetThrottleLeft { new_throttle: message.data }),
-                                esda_interface::ESDAMessageID::SetTargetVelRight => throttle_command_signal.signal(esda_throttle::ThrottleSetCommand::SetThrottleRight { new_throttle: message.data }),
+                                esda_interface::ESDAMessageID::SetTargetVelLeft => {
+                                    throttle_command_signal.signal(
+                                        esda_throttle::ThrottleSetCommand::SetThrottleLeft {
+                                            new_throttle: message.data,
+                                        },
+                                    )
+                                }
+                                esda_interface::ESDAMessageID::SetTargetVelRight => {
+                                    throttle_command_signal.signal(
+                                        esda_throttle::ThrottleSetCommand::SetThrottleRight {
+                                            new_throttle: message.data,
+                                        },
+                                    )
+                                }
                                 esda_interface::ESDAMessageID::ESTOP => {
                                     println!("SERIAL_READER: Received E-Stop Signal, idling ESCs and ignoring all further throttle commands!");
-                                    throttle_command_signal.signal(esda_throttle::ThrottleSetCommand::EngageEStop)
-                                },
+                                    throttle_command_signal
+                                        .signal(esda_throttle::ThrottleSetCommand::EngageEStop)
+                                }
                                 _ => {}
                             }
-                        },
-                        Err(invalid_data) => println!("SERIAL_READER: Got invalid message {invalid_data:?}")
+                        }
+                        Err(invalid_data) => {
+                            println!("SERIAL_READER: Got invalid message {invalid_data:?}")
+                        }
                     }
                 }
 
                 offset += len;
             }
             // Otherwise log the error
-            Err(e) => esp_println::println!("Serial RX Error: {:?}", e),
+            Err(e) => println!("Serial RX Error: {:?}", e),
         }
     }
 }
