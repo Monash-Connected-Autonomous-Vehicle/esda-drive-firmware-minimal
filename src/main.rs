@@ -1,13 +1,18 @@
-//! ESP-NOW Example
+//! Embassy ESP-NOW Example
 //!
-//! Broadcasts, receives and sends messages via esp-now
+//! Broadcasts, receives and sends messages via esp-now in an async way
+//!
+//! Because of the huge task-arena size configured this won't work on ESP32-S2
 
-//% FEATURES: esp-wifi esp-wifi/wifi-default esp-wifi/wifi esp-wifi/utils esp-wifi/esp-now
-//% CHIPS: esp32 esp32s2 esp32s3 esp32c2 esp32c3 esp32c6
+//% FEATURES: async embassy embassy-generic-timers esp-wifi esp-wifi/async esp-wifi/embassy-net esp-wifi/wifi-default esp-wifi/wifi esp-wifi/utils esp-wifi/esp-now
+//% CHIPS: esp32 esp32s3 esp32c2 esp32c3 esp32c6
 
 #![no_std]
 #![no_main]
 
+use embassy_executor::Spawner;
+use embassy_futures::select::{select, Either};
+use embassy_time::{Duration, Ticker};
 use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
@@ -15,20 +20,27 @@ use esp_hal::{
     prelude::*,
     rng::Rng,
     system::SystemControl,
-    timer::PeriodicTimer,
+    timer::{ErasedTimer, OneShotTimer, PeriodicTimer},
 };
 use esp_println::println;
 use esp_wifi::{
-    current_millis,
     esp_now::{PeerInfo, BROADCAST_ADDRESS},
     initialize,
     EspWifiInitFor,
 };
 
-use byteorder::{Byteorder, LittleEndian}; // Import Byteorder
+// When you are okay with using a nightly compiler it's better to use https://docs.rs/static_cell/2.1.0/static_cell/macro.make_static.html
+macro_rules! mk_static {
+    ($t:ty,$val:expr) => {{
+        static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
+        #[deny(unused_attributes)]
+        let x = STATIC_CELL.uninit().write(($val));
+        x
+    }};
+}
 
-#[entry]
-fn main() -> ! {
+#[main]
+async fn main(_spawner: Spawner) -> ! {
     esp_println::logger::init_logger_from_env();
 
     let peripherals = Peripherals::take();
@@ -53,30 +65,37 @@ fn main() -> ! {
 
     let wifi = peripherals.WIFI;
     let mut esp_now = esp_wifi::esp_now::EspNow::new(&init, wifi).unwrap();
-
     println!("esp-now version {}", esp_now.get_version().unwrap());
 
-    let mut next_send_time = current_millis() + 5 * 1000;
-    let mut cntr: u32 = 0; // Initializes an integer counter 
+    #[cfg(feature = "esp32")]
+    {
+        let timg1 = esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG1, &clocks, None);
+        esp_hal_embassy::init(
+            &clocks,
+            mk_static!(
+                [OneShotTimer<ErasedTimer>; 1],
+                [OneShotTimer::new(timg1.timer0.into())]
+            ),
+        );
+    }
 
+    #[cfg(not(feature = "esp32"))]
+    {
+        let systimer = esp_hal::timer::systimer::SystemTimer::new(peripherals.SYSTIMER);
+        esp_hal_embassy::init(
+            &clocks,
+            mk_static!(
+                [OneShotTimer<ErasedTimer>; 1],
+                [OneShotTimer::new(systimer.alarm0.into())]
+            ),
+        );
+    }
+
+    let mut ticker = Ticker::every(Duration::from_secs(5));
     loop {
-        let r = esp_now.receive();
-        if let Some(r) = r {
-
-            println!("Received message from {:?}", r.info.src_address);
-            let data = r.data;
-            if data.len() >= 4 {
-                let received_number = LittleEndian::read_u32(&data[0..4]);
-                println!("Received number: {}", received_number);
-            } else {
-                println!("Received data is too short to decode as u32.");
-            }
-            
-            // println!("Received data as {:?}", data);
-
-
-            //println!("Received {:?}", r);
-
+        let res = select(ticker.next(), async {
+            let r = esp_now.receive_async().await;
+            println!("Received {:?}", r);
             if r.info.dst_address == BROADCAST_ADDRESS {
                 if !esp_now.peer_exists(&r.info.src_address) {
                     esp_now
@@ -88,25 +107,19 @@ fn main() -> ! {
                         })
                         .unwrap();
                 }
-                let status = esp_now
-                    .send(&r.info.src_address, b"Hello Peer")
-                    .unwrap()
-                    .wait();
+                let status = esp_now.send_async(&r.info.src_address, b"Hello Peer").await;
                 println!("Send hello to peer status: {:?}", status);
             }
-        }
+        })
+        .await;
 
-        if current_millis() >= next_send_time {
-            next_send_time = current_millis() + 5 * 1000;
-            println!("Send");
-            // Increment counter and send
-            let mut buffer = [0; 4];
-            LittleEndian::write_u32(&mut buffer, cntr);
-            let status = esp_now
-                .send(&BROADCAST_ADDRESS, &buffer)
-                .unwrap()
-                .wait();
-            println!("Send broadcast status: {:?}", status)
+        match res {
+            Either::First(_) => {
+                println!("Send");
+                let status = esp_now.send_async(&BROADCAST_ADDRESS, b"0123456789").await;
+                println!("Send broadcast status: {:?}", status)
+            }
+            Either::Second(_) => (),
         }
     }
 }
