@@ -18,8 +18,8 @@ pub enum ESDAMessageID {
 /// Struct wrapper around the u32 used to denote the 'topic' being described by a control message
 #[derive(Clone, Copy, Debug)]
 pub struct ESDAMessage {
-    id: ESDAMessageID,
-    data: f32,
+    pub id: ESDAMessageID,
+    pub data: f32,
 }
 
 impl ESDAMessage {
