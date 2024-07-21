@@ -10,17 +10,12 @@
 #![no_main]
 #![allow(dead_code)]
 
-use core::{cell::RefCell, sync::atomic::Ordering};
-
-use atomic_float::AtomicF32;
-use critical_section::Mutex;
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
-    gpio::{Event, GpioPin, Input, Io, Level, Pull},
-    macros::ram,
+    gpio::{Event, GpioPin, Input, Io, Pull},
     mcpwm::{operator::PwmPinConfig, timer::PwmWorkingMode, McPwm, PeripheralClockConfig},
     peripherals::Peripherals,
     prelude::*,
@@ -39,25 +34,12 @@ mod pwm_extension;
 
 /// Module containing code for esda serial interface
 mod esda_serial;
+
+/// Module containing throttle pwm driver
 mod esda_throttle;
 
-// 18, 19, 21
-const ENCODER_LEFT_A_PIN: u8 = 18;
-const ENCODER_LEFT_D_PIN: u8 = 19;
-static ENCODER_LEFT_A: Mutex<RefCell<Option<Input<GpioPin<{ ENCODER_LEFT_A_PIN }>>>>> =
-    Mutex::new(RefCell::new(None));
-static ENCODER_LEFT_D: Mutex<RefCell<Option<Input<GpioPin<{ ENCODER_LEFT_D_PIN }>>>>> =
-    Mutex::new(RefCell::new(None));
-static ENCODER_LEFT_TICKS: AtomicF32 = AtomicF32::new(0.0);
-
-// 34, 33, 32
-const ENCODER_RIGHT_A_PIN: u8 = 34;
-const ENCODER_RIGHT_D_PIN: u8 = 33;
-static ENCODER_RIGHT_A: Mutex<RefCell<Option<Input<GpioPin<{ ENCODER_RIGHT_A_PIN }>>>>> =
-    Mutex::new(RefCell::new(None));
-static ENCODER_RIGHT_D: Mutex<RefCell<Option<Input<GpioPin<{ ENCODER_RIGHT_D_PIN }>>>>> =
-    Mutex::new(RefCell::new(None));
-static ENCODER_RIGHT_TICKS: AtomicF32 = AtomicF32::new(0.0);
+// Speedometer derivation code
+mod esda_speedo;
 
 // Register the mk_static utility macro
 // NOTE: If using nightly compiler then use use https://docs.rs/static_cell/2.1.0/static_cell/macro.make_static.html instead
@@ -85,7 +67,7 @@ async fn main(spawner: Spawner) {
     // Initialise main IO driver
     let mut io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
     // Register General Hardware Interrupt Handler
-    io.set_interrupt_handler(handler);
+    io.set_interrupt_handler(esda_speedo::encoder_tick_handler);
 
     // Initialise Timers and the embassy runtime
     let timg0 = TimerGroup::new(peripherals.TIMG0, &clocks, None);
@@ -108,17 +90,17 @@ async fn main(spawner: Spawner) {
     // Initialise global handles to encoders
     critical_section::with(|cs| {
         encoder_left_a.listen(Event::RisingEdge);
-        ENCODER_LEFT_A.borrow_ref_mut(cs).replace(encoder_left_a);
+        esda_speedo::ENCODER_LEFT_A.borrow_ref_mut(cs).replace(encoder_left_a);
     });
     critical_section::with(|cs| {
         encoder_right_a.listen(Event::RisingEdge);
-        ENCODER_RIGHT_A.borrow_ref_mut(cs).replace(encoder_right_a);
+        esda_speedo::ENCODER_RIGHT_A.borrow_ref_mut(cs).replace(encoder_right_a);
     });
     critical_section::with(|cs| {
-        ENCODER_LEFT_D.borrow_ref_mut(cs).replace(encoder_left_d);
+        esda_speedo::ENCODER_LEFT_D.borrow_ref_mut(cs).replace(encoder_left_d);
     });
     critical_section::with(|cs| {
-        ENCODER_RIGHT_D.borrow_ref_mut(cs).replace(encoder_right_d);
+        esda_speedo::ENCODER_RIGHT_D.borrow_ref_mut(cs).replace(encoder_right_d);
     });
 
     println!("Initialising throttle pwm pins...");
@@ -203,67 +185,4 @@ async fn main(spawner: Spawner) {
     println!("Finished UART Initialisation!");
 
     println!("Fully Initialised!");
-}
-
-#[handler]
-#[ram] // Equivalent of IRAM_ATTR
-fn handler() {
-    println!(
-        "GPIO Interrupt with priority {}",
-        esp_hal::xtensa_lx::interrupt::get_level()
-    );
-
-    critical_section::with(|cs| {
-        // Check that the left encoder caused an interrupt (since interrupt is rising edge, does not debounce)
-        if ENCODER_LEFT_A
-            .borrow_ref_mut(cs)
-            .as_mut()
-            .unwrap()
-            .is_high()
-        {
-            ENCODER_LEFT_TICKS
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current_ticks| {
-                    Some(
-                        match ENCODER_LEFT_D.borrow_ref(cs).as_ref().unwrap().get_level() {
-                            Level::Low => current_ticks + 1.0,
-                            Level::High => current_ticks - 1.0,
-                        },
-                    )
-                })
-                .unwrap();
-            // Reset the left encoder's interrupt status
-            ENCODER_LEFT_A
-                .borrow_ref_mut(cs)
-                .as_mut()
-                .unwrap()
-                .clear_interrupt()
-        }
-    });
-
-    critical_section::with(|cs| {
-        // Check that the left encoder caused an interrupt (since interrupt is rising edge, does not debounce)
-        if ENCODER_RIGHT_A
-            .borrow_ref_mut(cs)
-            .as_mut()
-            .unwrap()
-            .is_high()
-        {
-            ENCODER_RIGHT_TICKS
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current_ticks| {
-                    Some(
-                        match ENCODER_RIGHT_D.borrow_ref(cs).as_ref().unwrap().get_level() {
-                            Level::Low => current_ticks + 1.0,
-                            Level::High => current_ticks - 1.0,
-                        },
-                    )
-                })
-                .unwrap();
-            // Reset the right encoder's interrupt status
-            ENCODER_RIGHT_A
-                .borrow_ref_mut(cs)
-                .as_mut()
-                .unwrap()
-                .clear_interrupt()
-        }
-    });
 }
