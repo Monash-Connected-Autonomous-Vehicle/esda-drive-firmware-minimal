@@ -37,47 +37,34 @@ pub async fn throttle_driver(throttle_command_signal: &'static Signal<NoopRawMut
         // Wait until we receive a command to change the throttle
         let received_throttle_command = throttle_command_signal.wait().await;
         throttle_command_signal.reset();
+
+        critical_section::with(|cs| {
+            // Process the command
+            match received_throttle_command {
+                // Set the escs to neutral for 3 seconds
+                ThrottleSetCommand::ArmESCs | ThrottleSetCommand::EngageEStop => {
+                        // Set left pwm
+                        apply_throttle_set_command(THROTTLE_PWM_HANDLE_LEFT.borrow_ref_mut(cs), 1500.0);
+                        // Set right pwm
+                        apply_throttle_set_command(THROTTLE_PWM_HANDLE_RIGHT.borrow_ref_mut(cs), 1500.0);
+                }
+                // Simple throttle changes can be applied as-is
+                ThrottleSetCommand::SetThrottleLeft { new_throttle } => {
+                        apply_throttle_set_command(THROTTLE_PWM_HANDLE_LEFT.borrow_ref_mut(cs), new_throttle);
+                }
+                ThrottleSetCommand::SetThrottleRight { new_throttle } => {
+                        apply_throttle_set_command(THROTTLE_PWM_HANDLE_RIGHT.borrow_ref_mut(cs), new_throttle);
+                }
+            }
+        });
         
-        // Process the command
-        match received_throttle_command {
-            // Set the escs to neutral for 3 seconds
-            ThrottleSetCommand::ArmESCs => {
-                esp_println::println!("Arming ESCs...");
-                critical_section::with(|cs| {
-                    // Set left pwm
-                    apply_throttle_set_command(THROTTLE_PWM_HANDLE_LEFT.borrow_ref_mut(cs), 1500.0);
-                    // Set right pwm
-                    apply_throttle_set_command(THROTTLE_PWM_HANDLE_RIGHT.borrow_ref_mut(cs), 1500.0);
-                });
-
-                // Wait three seconds for the escs to arm
-                Timer::after(Duration::from_millis(3_000)).await;
-                esp_println::println!("ESCs Armed");
-            }
-            // Simple throttle changes can be applied as-is
-            ThrottleSetCommand::SetThrottleLeft { new_throttle } => {
-                critical_section::with(|cs| {
-                    apply_throttle_set_command(THROTTLE_PWM_HANDLE_LEFT.borrow_ref_mut(cs), new_throttle);
-                });
-            }
-            ThrottleSetCommand::SetThrottleRight { new_throttle } => {
-                critical_section::with(|cs| {
-                    apply_throttle_set_command(THROTTLE_PWM_HANDLE_RIGHT.borrow_ref_mut(cs), new_throttle);
-                });
-            }
-
-            ThrottleSetCommand::EngageEStop => {
-                esp_println::println!("Engaging E-STOP...");
-                critical_section::with(|cs| {
-                    // Set left pwm
-                    apply_throttle_set_command(THROTTLE_PWM_HANDLE_LEFT.borrow_ref_mut(cs), 1500.0);
-                    // Set right pwm
-                    apply_throttle_set_command(THROTTLE_PWM_HANDLE_RIGHT.borrow_ref_mut(cs), 1500.0);
-                });
-                break;
-            },
+        // Wait three seconds for the escs to arm
+        if matches!(received_throttle_command,ThrottleSetCommand::ArmESCs) {
+            Timer::after(Duration::from_millis(3_000)).await;
+            esp_println::println!("ESCs Armed");
+        } else {
+            return
         }
-
     }
 }
 
