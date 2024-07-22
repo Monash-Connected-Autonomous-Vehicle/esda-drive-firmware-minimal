@@ -1,3 +1,4 @@
+use core::pin;
 use core::{cell::RefCell, f32::consts::PI, sync::atomic::Ordering};
 
 use atomic_float::AtomicF32;
@@ -5,6 +6,8 @@ use critical_section::Mutex;
 use embassy_executor::task;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
+use esp_hal::gpio::{InputPin, RtcInputPin};
+use esp_hal::peripheral::PeripheralRef;
 use esp_hal::prelude::ram;
 use esp_hal::{
     gpio::{GpioPin, Input, Level},
@@ -24,6 +27,8 @@ const VELOCITY_SAMPLE_PERIOD: u64 = (1E3 / VELOCITY_SAMPLE_FREQUENCY as f32) as 
 // Available Pins: 18, 19, 21
 pub const ENCODER_LEFT_A_PIN: u8 = 18;
 pub const ENCODER_LEFT_D_PIN: u8 = 19;
+/// Which direction of rotation should be considered 'positive'
+pub const ENCODER_LEFT_POS_DIR: Direction = Direction::Clockwise;
 pub static ENCODER_LEFT_A: Mutex<RefCell<Option<Input<GpioPin<{ ENCODER_LEFT_A_PIN }>>>>> =
     Mutex::new(RefCell::new(None));
 pub static ENCODER_LEFT_D: Mutex<RefCell<Option<Input<GpioPin<{ ENCODER_LEFT_D_PIN }>>>>> =
@@ -33,14 +38,21 @@ pub static ENCODER_LEFT_TICKS: AtomicF32 = AtomicF32::new(0.0);
 // Available Pins: 34, 33, 32
 pub const ENCODER_RIGHT_A_PIN: u8 = 34;
 pub const ENCODER_RIGHT_D_PIN: u8 = 33;
+/// Which direction of rotation should be considered 'positive'
+pub const ENCODER_RIGHT_POS_DIR: Direction = Direction::Clockwise;
 pub static ENCODER_RIGHT_A: Mutex<RefCell<Option<Input<GpioPin<{ ENCODER_RIGHT_A_PIN }>>>>> =
     Mutex::new(RefCell::new(None));
 pub static ENCODER_RIGHT_D: Mutex<RefCell<Option<Input<GpioPin<{ ENCODER_RIGHT_D_PIN }>>>>> =
     Mutex::new(RefCell::new(None));
 pub static ENCODER_RIGHT_TICKS: AtomicF32 = AtomicF32::new(0.0);
 
+pub enum Direction {
+    Clockwise,
+    Anticlockwise
+}
+
 #[task]
-pub async fn speedometer(speedo_transmit_signal: &'static Signal<NoopRawMutex, (f32, f32)>) {
+pub async fn speedometer(speedo_transmit_signal: &'static Signal<NoopRawMutex, (f32, f32)>, ) {
     loop {
         // Read and then reset the left and right tick countersS
         let left_ticks = ENCODER_LEFT_TICKS
@@ -60,60 +72,26 @@ pub async fn speedometer(speedo_transmit_signal: &'static Signal<NoopRawMutex, (
     }
 }
 
-#[handler]
-#[ram] // Equivalent of IRAM_ATTR
-pub fn interrupt_handler() {
-    critical_section::with(|cs| {
-        // Check that the left encoder caused an interrupt (since interrupt is rising edge, does not debounce)
-        if ENCODER_LEFT_A
-            .borrow_ref_mut(cs)
-            .as_mut()
-            .unwrap()
-            .is_interrupt_set()
-        {
-            ENCODER_LEFT_TICKS
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current_ticks| {
-                    Some(
-                        match ENCODER_LEFT_D.borrow_ref(cs).as_ref().unwrap().get_level() {
-                            Level::Low => current_ticks + 1.0,
-                            Level::High => current_ticks - 1.0,
-                        },
-                    )
-                })
-                .unwrap();
-            // Reset the left encoder's interrupt status
-            ENCODER_LEFT_A
-                .borrow_ref_mut(cs)
-                .as_mut()
-                .unwrap()
-                .clear_interrupt()
-        }
-    });
-
-    critical_section::with(|cs| {
-        // Check that the left encoder caused an interrupt (since interrupt is rising edge, does not debounce)
-        if ENCODER_RIGHT_A
-            .borrow_ref_mut(cs)
-            .as_mut()
-            .unwrap()
-            .is_interrupt_set()
-        {
-            ENCODER_RIGHT_TICKS
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current_ticks| {
-                    Some(
-                        match ENCODER_RIGHT_D.borrow_ref(cs).as_ref().unwrap().get_level() {
-                            Level::Low => current_ticks + 1.0,
-                            Level::High => current_ticks - 1.0,
-                        },
-                    )
-                })
-                .unwrap();
-            // Reset the right encoder's interrupt status
-            ENCODER_RIGHT_A
-                .borrow_ref_mut(cs)
-                .as_mut()
-                .unwrap()
-                .clear_interrupt()
-        }
-    });
+#[task]
+pub async fn tick_counter(tick_counter: &'static AtomicF32, mut pin_a: Input<'static, impl InputPin>, pin_d: Input<'static, impl InputPin>, pos_direction: Direction) {
+    loop {
+        // Wait for rising edge on the pin
+        pin_a.wait_for_rising_edge().await;
+        // If the second pin is high then the tick was clockwise,
+        // Otherwise it was anticlockwise
+        tick_counter.fetch_update(Ordering::SeqCst, Ordering::SeqCst, | current_ticks: f32 | {
+            Some(
+                current_ticks + 
+                match pin_d.get_level() {
+                    Level::Low => -1.0,
+                    Level::High => 1.0
+                }
+                // Invert if the direction is inverted
+                * match pos_direction {
+                    Direction::Clockwise => -1.0,
+                    Direction::Anticlockwise => 1.0,
+                },
+            )
+        }).unwrap();
+    }
 }

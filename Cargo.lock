@@ -407,7 +407,7 @@ version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a34817530dceba397172d6a9fb660b684a73a3a591fbe7fb0da27bed796f270"
 dependencies = [
- "esp-build 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "esp-build",
  "esp-println",
  "semihosting",
 ]
@@ -424,19 +424,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "esp-build"
-version = "0.1.0"
-source = "git+https://github.com/BMCG0011/esp-hal?branch=patch#68e6a53eae85d911e1ad3cfb4e8a228093ed0d11"
-dependencies = [
- "quote",
- "syn 2.0.72",
- "termcolor",
-]
-
-[[package]]
 name = "esp-hal"
 version = "0.19.0"
-source = "git+https://github.com/BMCG0011/esp-hal?branch=patch#68e6a53eae85d911e1ad3cfb4e8a228093ed0d11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe4f8cb6a9dcf0fd4506a856fbb4a0622b92042978c601a23c840c28f621a59f"
 dependencies = [
  "basic-toml",
  "bitfield",
@@ -458,9 +449,9 @@ dependencies = [
  "embedded-io",
  "embedded-io-async",
  "enumset",
- "esp-build 0.1.0 (git+https://github.com/BMCG0011/esp-hal?branch=patch)",
+ "esp-build",
  "esp-hal-procmacros",
- "esp-metadata 0.2.0 (git+https://github.com/BMCG0011/esp-hal?branch=patch)",
+ "esp-metadata",
  "esp-riscv-rt",
  "esp32",
  "fugit",
@@ -487,9 +478,9 @@ dependencies = [
  "document-features",
  "embassy-executor",
  "embassy-time-driver",
- "esp-build 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "esp-build",
  "esp-hal",
- "esp-metadata 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "esp-metadata",
  "log",
  "portable-atomic",
 ]
@@ -497,7 +488,8 @@ dependencies = [
 [[package]]
 name = "esp-hal-procmacros"
 version = "0.12.0"
-source = "git+https://github.com/BMCG0011/esp-hal?branch=patch#68e6a53eae85d911e1ad3cfb4e8a228093ed0d11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9569ccb286c5a0c39292dbaaa0995bbb2a2a9d671ef3ce807b8b5b3d9a589d35"
 dependencies = [
  "darling",
  "document-features",
@@ -522,24 +514,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "esp-metadata"
-version = "0.2.0"
-source = "git+https://github.com/BMCG0011/esp-hal?branch=patch#68e6a53eae85d911e1ad3cfb4e8a228093ed0d11"
-dependencies = [
- "basic-toml",
- "lazy_static",
- "serde",
- "strum 0.26.3",
-]
-
-[[package]]
 name = "esp-println"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "58cd4fa834980ba64aad00a5c2c1a630020af984eadef65a125cb99085f6f54c"
 dependencies = [
  "critical-section",
- "esp-build 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "esp-build",
  "log",
  "portable-atomic",
 ]
@@ -547,7 +528,8 @@ dependencies = [
 [[package]]
 name = "esp-riscv-rt"
 version = "0.9.0"
-source = "git+https://github.com/BMCG0011/esp-hal?branch=patch#68e6a53eae85d911e1ad3cfb4e8a228093ed0d11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfc32298ed7c263b06c8b031704d8517cc62c819f2a9d5c261d0cb119634d6e9"
 dependencies = [
  "document-features",
  "riscv",
@@ -568,7 +550,7 @@ dependencies = [
  "embedded-io",
  "embedded-io-async",
  "enumset",
- "esp-build 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "esp-build",
  "esp-hal",
  "esp-hal-embassy",
  "esp-wifi-sys",

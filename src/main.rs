@@ -67,8 +67,6 @@ async fn main(spawner: Spawner) {
     let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
     // Initialise main IO driver
     let mut io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
-    // Register General Hardware Interrupt Handler for Speedo and hardware E-Stop
-    io.set_interrupt_handler(esda_speedo::interrupt_handler);
 
     // Initialise Timers and the embassy runtime
     let timg0 = TimerGroup::new(peripherals.TIMG0, &clocks, None);
@@ -89,28 +87,39 @@ async fn main(spawner: Spawner) {
     let encoder_right_d = Input::new(encoder_right_d, Pull::Down);
 
     // Initialise global handles to encoders
-    critical_section::with(|cs| {
-        encoder_left_a.listen(Event::RisingEdge);
-        esda_speedo::ENCODER_LEFT_A
-            .borrow_ref_mut(cs)
-            .replace(encoder_left_a);
-    });
-    critical_section::with(|cs| {
-        encoder_right_a.listen(Event::RisingEdge);
-        esda_speedo::ENCODER_RIGHT_A
-            .borrow_ref_mut(cs)
-            .replace(encoder_right_a);
-    });
-    critical_section::with(|cs| {
-        esda_speedo::ENCODER_LEFT_D
-            .borrow_ref_mut(cs)
-            .replace(encoder_left_d);
-    });
-    critical_section::with(|cs| {
-        esda_speedo::ENCODER_RIGHT_D
-            .borrow_ref_mut(cs)
-            .replace(encoder_right_d);
-    });
+    // critical_section::with(|cs| {
+    //     encoder_left_a.listen(Event::RisingEdge);
+    //     esda_speedo::ENCODER_LEFT_A
+    //         .borrow_ref_mut(cs)
+    //         .replace(encoder_left_a);
+    // });
+    // critical_section::with(|cs| {
+    //     encoder_right_a.listen(Event::RisingEdge);
+    //     esda_speedo::ENCODER_RIGHT_A
+    //         .borrow_ref_mut(cs)
+    //         .replace(encoder_right_a);
+    // });
+    // critical_section::with(|cs| {
+    //     esda_speedo::ENCODER_LEFT_D
+    //         .borrow_ref_mut(cs)
+    //         .replace(encoder_left_d);
+    // });
+    // critical_section::with(|cs| {
+    //     esda_speedo::ENCODER_RIGHT_D
+    //         .borrow_ref_mut(cs)
+    //         .replace(encoder_right_d);
+    // });
+    println!("Spawning speedometer tasks...");
+    // Initialise signal channel for throttle updates
+    static SPEEDO_TICK_SIGNAL: StaticCell<Signal<NoopRawMutex, (f32, f32)>> = StaticCell::new();
+    let speedo_tick_signal = &*SPEEDO_TICK_SIGNAL.init(Signal::new());
+
+    // Spawn tick counters
+    spawner.spawn(esda_speedo::tick_counter(&esda_speedo::ENCODER_LEFT_TICKS, encoder_left_a, encoder_left_d, esda_speedo::Direction::Clockwise)).unwrap();
+    spawner.spawn(esda_speedo::tick_counter(&esda_speedo::ENCODER_RIGHT_TICKS, encoder_right_a, encoder_right_d, esda_speedo::Direction::Anticlockwise)).unwrap();
+
+    // Spawn Main Speedometer Task
+    spawner.spawn(esda_speedo::speedometer(&speedo_tick_signal)).ok();
     println!("Encoders Initialised...");
 
     println!("Initialising throttle pwm pins...");
@@ -186,10 +195,6 @@ async fn main(spawner: Spawner) {
     // Split UART handle into TX and RX Channels
     let (tx, rx) = uart1.split();
 
-    // Initialise signal channel for throttle updates
-    static SPEEDO_TICK_SIGNAL: StaticCell<Signal<NoopRawMutex, (f32, f32)>> = StaticCell::new();
-    let speedo_tick_signal = &*SPEEDO_TICK_SIGNAL.init(Signal::new());
-
     println!("Spawning UART Tasks...");
     spawner
         .spawn(esda_serial::reader(rx, &throttle_command_signal))
@@ -198,9 +203,6 @@ async fn main(spawner: Spawner) {
         .spawn(esda_serial::writer(tx, &speedo_tick_signal))
         .ok();
     println!("Finished UART Initialisation!");
-
-    println!("Spawning speedometer task...");
-    spawner.spawn(esda_speedo::speedometer(&speedo_tick_signal)).ok();
 
     println!("Fully Initialised!");
 }
