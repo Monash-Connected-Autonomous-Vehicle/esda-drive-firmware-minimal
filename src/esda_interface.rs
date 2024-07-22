@@ -107,11 +107,11 @@ impl ESDAMessage {
         // NOTE: DOUBLE CHECK CORRECT ENDIANNESS
         let id_quartet: [u8; 4] = (self.id as u32).to_le_bytes();
         // Copy the bytes to the output buffer
-        byte_form[0..3].copy_from_slice(&id_quartet);
+        byte_form[0..=3].copy_from_slice(&id_quartet);
 
         // Copy the bytes to the output buffer
         let value_quartet: [u8; 4] = self.data.to_le_bytes();
-        byte_form[4..7].copy_from_slice(&value_quartet);
+        byte_form[4..=7].copy_from_slice(&value_quartet);
 
         byte_form
     }
@@ -124,11 +124,11 @@ impl ESDAMessage {
         // NOTE: DOUBLE CHECK CORRECT ENDIANNESS
         let id_quartet: [u8; 4] = (self.id as u32).to_be_bytes();
         // Copy the bytes to the output buffer
-        byte_form[0..3].copy_from_slice(&id_quartet);
+        byte_form[0..=3].copy_from_slice(&id_quartet);
 
         // Copy the bytes to the output buffer
         let value_quartet: [u8; 4] = self.data.to_be_bytes();
-        byte_form[4..7].copy_from_slice(&value_quartet);
+        byte_form[4..=7].copy_from_slice(&value_quartet);
 
         byte_form
     }

@@ -1,8 +1,8 @@
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use esp_backtrace as _;
 use esp_hal::{
-    peripherals::UART0,
-    uart::{UartRx, UartTx},
+    peripherals::UART1,
+    uart::{self, UartRx, UartTx},
     Async,
 };
 use esp_println::println;
@@ -19,9 +19,31 @@ pub(crate) const READ_BUF_SIZE: usize = 64;
 // EOT (CTRL-D)
 pub(crate) const AT_CMD: u8 = 0x04;
 
-#[embassy_executor::task]
-pub(crate) async fn writer(_tx: UartTx<'static, UART0, Async>) {
+pub const TX_PIN: u8 = 2;
+pub const RX_PIN: u8 = 15;
 
+#[embassy_executor::task]
+pub(crate) async fn writer(
+    tx: UartTx<'static, UART1, Async>,
+    speedo_transmit_signal: &'static Signal<NoopRawMutex, (f32, f32)>,
+) {
+    use core::fmt::Write;
+    loop {
+        // Wait until the speedo task tells us to send a speed update
+        let (left_vel, right_vel) = speedo_transmit_signal.wait().await;
+        speedo_transmit_signal.reset();
+
+        let left = esda_interface::ESDAMessage {
+            id: esda_interface::ESDAMessageID::CurrentVelLeft,
+            data: left_vel,
+        };
+        let right = esda_interface::ESDAMessage {
+            id: esda_interface::ESDAMessageID::CurrentVelRight,
+            data: right_vel,
+        };
+        println!("Left {:?}, Right: {:?}\r\n", left, right);
+        // write!(&mut tx, "{:?}\r\n", &left).unwrap()
+    }
     // embedded_io_async::Write::write(
     //     &mut tx,
     //     b"Hello async serial. Enter something ended with EOT (CTRL-D).\r\n",
@@ -39,7 +61,7 @@ pub(crate) async fn writer(_tx: UartTx<'static, UART0, Async>) {
 
 #[embassy_executor::task]
 pub(crate) async fn reader(
-    mut rx: UartRx<'static, UART0, Async>,
+    mut rx: UartRx<'static, UART1, Async>,
     throttle_command_signal: &'static Signal<NoopRawMutex, esda_throttle::ThrottleSetCommand>,
 ) {
     const MAX_BUFFER_SIZE: usize = 10 * READ_BUF_SIZE + 16;
