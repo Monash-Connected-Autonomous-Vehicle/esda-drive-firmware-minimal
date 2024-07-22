@@ -17,8 +17,8 @@ use atomic_float::AtomicF32;
 use critical_section::Mutex;
 use embassy_executor::Spawner;
 use embassy_futures::select::{select, Either};
-use embassy_time::{Duration, Ticker};
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
+use embassy_time::{Duration, Ticker};
 use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
@@ -45,10 +45,12 @@ mod pwm_extension;
 mod esda_serial;
 mod esda_throttle;
 
+/// Module for handling esda wireless implementation
+mod esda_wireless;
+
 use esp_wifi::{
     esp_now::{PeerInfo, BROADCAST_ADDRESS},
-    initialize,
-    EspWifiInitFor,
+    initialize, EspWifiInitFor,
 };
 
 // 18, 19, 21
@@ -81,7 +83,7 @@ macro_rules! mk_static {
 }
 
 #[main]
-async fn main(spawner: Spawner) -> ! {
+async fn main(spawner: Spawner) {
     esp_println::logger::init_logger_from_env();
 
     println!("Beginning Asterius Firmware Initialisation...");
@@ -172,8 +174,6 @@ async fn main(spawner: Spawner) -> ! {
         Signal<NoopRawMutex, esda_throttle::ThrottleSetCommand>,
     > = StaticCell::new();
     let throttle_command_signal = &*THROTTLE_COMMAND_SIGNAL.init(Signal::new());
-    // Initialise signal channel for estop
-    static ESTOP_SIGNAL: StaticCell<Signal<NoopRawMutex, bool>> = StaticCell::new();
 
     // Spawn throttle driver task
     spawner
@@ -184,6 +184,13 @@ async fn main(spawner: Spawner) -> ! {
     println!("Encoder Init complete!");
 
     println!("Initialising UART Connection to PC");
+    // Initialise signal channel for forwarding espnow messages to serial
+    static SERIAL_FORWARDING_SIGNAL: StaticCell<
+    Signal<NoopRawMutex, esda_interface::ESDAMessage>,
+> = StaticCell::new();
+let serial_forwarding_signal = &*SERIAL_FORWARDING_SIGNAL.init(Signal::new());
+
+
     // Define pins for UART connection in IO MUX (Pins 1 and 3 are Standard)
     let (tx_pin, rx_pin) = (io.pins.gpio1, io.pins.gpio3);
 
@@ -210,7 +217,7 @@ async fn main(spawner: Spawner) -> ! {
     spawner
         .spawn(esda_serial::reader(rx, &throttle_command_signal))
         .ok();
-    spawner.spawn(esda_serial::writer(tx)).ok();
+    spawner.spawn(esda_serial::writer(tx, &serial_forwarding_signal)).ok();
     println!("Finished UART Initialisation!");
 
     println!("Starting esp-now Initialisation");
@@ -233,38 +240,6 @@ async fn main(spawner: Spawner) -> ! {
     let mut esp_now = esp_wifi::esp_now::EspNow::new(&init, wifi).unwrap();
     println!("esp-now version {}", esp_now.get_version().unwrap());
 
-    let mut ticker = Ticker::every(Duration::from_secs(5));
-    loop {
-        let res = select(ticker.next(), async {
-            let r = esp_now.receive_async().await;
-            println!("Received {:?}", r);
-            if r.info.dst_address == BROADCAST_ADDRESS {
-                if !esp_now.peer_exists(&r.info.src_address) {
-                    esp_now
-                        .add_peer(PeerInfo {
-                            peer_address: r.info.src_address,
-                            lmk: None,
-                            channel: None,
-                            encrypt: false,
-                        })
-                        .unwrap();
-                }
-                let status = esp_now.send_async(&r.info.src_address, b"Hello Peer").await;
-                println!("Send hello to peer status: {:?}", status);
-            }
-        })
-        .await;
-
-        match res {
-            Either::First(_) => {
-                println!("Send");
-                let status = esp_now.send_async(&BROADCAST_ADDRESS, b"0123456789").await;
-                println!("Send broadcast status: {:?}", status)
-            }
-            Either::Second(_) => (),
-        }
-
-    }
 }
 
 #[handler]
