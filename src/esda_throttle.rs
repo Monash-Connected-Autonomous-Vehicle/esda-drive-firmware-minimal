@@ -44,6 +44,9 @@ pub static THROTTLE_PWM_HANDLE_RIGHT: Mutex<
 pub async fn throttle_driver(
     throttle_command_signal: &'static Signal<NoopRawMutex, ThrottleSetCommand>,
 ) {
+    // Start by sending ourselves a signal to arm the escs
+    throttle_command_signal.signal(ThrottleSetCommand::ArmESCs);
+
     loop {
         // Wait until we receive a command to change the throttle
         let received_throttle_command = throttle_command_signal.wait().await;
