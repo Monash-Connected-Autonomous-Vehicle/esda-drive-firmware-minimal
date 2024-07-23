@@ -1,29 +1,22 @@
-//! Embassy ESP-NOW Example
-//!
-//! Broadcasts, receives and sends messages via esp-now in an async way
-//!
-//! Because of the huge task-arena size configured this won't work on ESP32-S2
-
-//% FEATURES: async embassy embassy-generic-timers esp-wifi esp-wifi/async esp-wifi/embassy-net esp-wifi/wifi-default esp-wifi/wifi esp-wifi/utils esp-wifi/esp-now
-//% CHIPS: esp32 esp32s3 esp32c2 esp32c3 esp32c6
+// MCAV - Asterius MCU Firmware - main
+//
+// Authors: BMCG0011, Samuel Tri
 
 #![no_std]
 #![no_main]
 #![allow(dead_code)]
 
-use core::{cell::RefCell, sync::atomic::Ordering};
+use core::cell::RefCell;
 
 use atomic_float::AtomicF32;
 use critical_section::Mutex;
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
-use embassy_time::{Duration, Ticker};
+use embassy_time::Timer;
 use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
-    gpio::{Event, GpioPin, Input, Io, Level, Pull},
-    macros::ram,
+    gpio::{Event, GpioPin, Input, Io, Pull},
     mcpwm::{operator::PwmPinConfig, timer::PwmWorkingMode, McPwm, PeripheralClockConfig},
     peripherals::Peripherals,
     prelude::*,
@@ -32,26 +25,24 @@ use esp_hal::{
     timer::{timg::TimerGroup, ErasedTimer, OneShotTimer, PeriodicTimer},
     uart::{self, config::AtCmdConfig},
 };
-use esp_println::println;
+use esp_println::{dbg, println};
 use static_cell::StaticCell;
 
 /// Module containing interface types for communicating with controller (via esp-now) and the computer (via serial)
 mod esda_interface;
 
-// Don't ask
+/// Module containing extension trait allowing for functions to accept pin-agnostic InputPin handles
 mod pwm_extension;
 
-/// Module containing code for esda serial interface
+/// Module containing uart serial writer and receiver tasks
 mod esda_serial;
+
 mod esda_throttle;
 
 /// Module for handling esda wireless implementation
 mod esda_wireless;
 
-use esp_wifi::{
-    esp_now::{PeerInfo, BROADCAST_ADDRESS},
-    initialize, EspWifiInitFor,
-};
+use esp_wifi::{initialize, EspWifiInitFor};
 
 // 18, 19, 21
 const ENCODER_LEFT_A_PIN: u8 = 18;
@@ -86,8 +77,8 @@ macro_rules! mk_static {
 async fn main(spawner: Spawner) {
     esp_println::logger::init_logger_from_env();
 
-    println!("Beginning Asterius Firmware Initialisation...");
-    println!("Initialising Runtime...");
+    println!("MAIN: Beginning Asterius Firmware Initialisation...");
+    dbg!("MAIN<DEBUG>: Initialising Peripherals");
     // Initialise Peripherals handle
     let peripherals = Peripherals::take();
 
@@ -96,9 +87,7 @@ async fn main(spawner: Spawner) {
     // Configure clocks and lock settings until next reboot
     let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
     // Initialise main IO driver
-    let mut io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
-    // Register General Hardware Interrupt Handler
-    io.set_interrupt_handler(handler);
+    let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
 
     // Initialise Timers and the embassy runtime
     let timg0 = TimerGroup::new(peripherals.TIMG0, &clocks, None);
@@ -108,7 +97,7 @@ async fn main(spawner: Spawner) {
     esp_hal_embassy::init(&clocks, timers);
 
     // Initialise rotary encoders
-    println!("Initialisng Rotary Encoders...");
+    println!("MAIN: Initialisng Rotary Encoders...");
     let encoder_left_a = io.pins.gpio18;
     let encoder_left_d = io.pins.gpio19;
     let encoder_right_a = io.pins.gpio34;
@@ -134,7 +123,7 @@ async fn main(spawner: Spawner) {
         ENCODER_RIGHT_D.borrow_ref_mut(cs).replace(encoder_right_d);
     });
 
-    println!("Initialising throttle pwm pins...");
+    println!("MAIN: Initialising throttle_driver...");
     let left_throttle_pin: GpioPin<{ esda_throttle::THROTTLE_PWM_PIN_LEFT }> =
         GpioPin::<{ esda_throttle::THROTTLE_PWM_PIN_LEFT }>;
     let right_throttle_pin: GpioPin<{ esda_throttle::THROTTLE_PWM_PIN_RIGHT }> =
@@ -171,7 +160,7 @@ async fn main(spawner: Spawner) {
 
     // Initialise signal channel for throttle updates
     static THROTTLE_COMMAND_SIGNAL: StaticCell<
-        Signal<NoopRawMutex, esda_throttle::ThrottleSetCommand>,
+        Signal<NoopRawMutex, esda_throttle::ThrottleCommand>,
     > = StaticCell::new();
     let throttle_command_signal = &*THROTTLE_COMMAND_SIGNAL.init(Signal::new());
 
@@ -179,17 +168,14 @@ async fn main(spawner: Spawner) {
     spawner
         .spawn(esda_throttle::throttle_driver(&throttle_command_signal))
         .unwrap();
-    println!("Fully Initialised!");
 
-    println!("Encoder Init complete!");
+    dbg!("MAIN<DEBUG>: THROTTLE_DRIVER Init complete!");
 
-    println!("Initialising UART Connection to PC");
+    println!("MAIN: Initialising UART Connection to PC...");
     // Initialise signal channel for forwarding espnow messages to serial
-    static SERIAL_FORWARDING_SIGNAL: StaticCell<
-    Signal<NoopRawMutex, esda_interface::ESDAMessage>,
-> = StaticCell::new();
-let serial_forwarding_signal = &*SERIAL_FORWARDING_SIGNAL.init(Signal::new());
-
+    static SERIAL_FORWARDING_SIGNAL: StaticCell<Signal<NoopRawMutex, esda_interface::ESDAMessage>> =
+        StaticCell::new();
+    let serial_forwarding_signal = &*SERIAL_FORWARDING_SIGNAL.init(Signal::new());
 
     // Define pins for UART connection in IO MUX (Pins 1 and 3 are Standard)
     let (tx_pin, rx_pin) = (io.pins.gpio1, io.pins.gpio3);
@@ -213,14 +199,16 @@ let serial_forwarding_signal = &*SERIAL_FORWARDING_SIGNAL.init(Signal::new());
     // Split UART handle into TX and RX Channels
     let (tx, rx) = uart0.split();
 
-    println!("Spawning UART Tasks...");
+    dbg!("MAIN<DEBUG>: Spawning UART TX/RX Tasks...");
     spawner
-        .spawn(esda_serial::reader(rx, &throttle_command_signal))
+        .spawn(esda_serial::serial_reader(rx, &throttle_command_signal))
         .ok();
-    spawner.spawn(esda_serial::writer(tx, &serial_forwarding_signal)).ok();
-    println!("Finished UART Initialisation!");
+    spawner
+        .spawn(esda_serial::serial_writer(tx, &serial_forwarding_signal))
+        .ok();
+    dbg!("MAIN<DBG>: Finished UART Initialisation!");
 
-    println!("Starting esp-now Initialisation");
+    println!("MAIN: Starting esp-now Initialisation");
     let timer = PeriodicTimer::new(
         esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG1, &clocks, None)
             .timer1
@@ -237,70 +225,22 @@ let serial_forwarding_signal = &*SERIAL_FORWARDING_SIGNAL.init(Signal::new());
     .unwrap();
 
     let wifi = peripherals.WIFI;
-    let mut esp_now = esp_wifi::esp_now::EspNow::new(&init, wifi).unwrap();
-    println!("esp-now version {}", esp_now.get_version().unwrap());
+    let esp_now = esp_wifi::esp_now::EspNow::new(&init, wifi).unwrap();
+    dbg!("MAIN<DEBUG>: esp-now version {}", esp_now.get_version().unwrap());
 
-}
+    // Spawn the esp_now receiver thread
+    spawner
+        .spawn(esda_wireless::wireless_receiver(
+            esp_now,
+            &throttle_command_signal,
+            &serial_forwarding_signal,
+        ))
+        .unwrap();
+    dbg!("MAIN<DBG>: Finished UART Initialisation!");
 
-#[handler]
-#[ram] // Equivalent of IRAM_ATTR
-fn handler() {
-    println!(
-        "GPIO Interrupt with priority {}",
-        esp_hal::xtensa_lx::interrupt::get_level()
-    );
+    // Infinite loop to prevent watchdog from tripping
+    loop {
+        Timer::after_secs(3).await;
+    }
 
-    critical_section::with(|cs| {
-        // Check that the left encoder caused an interrupt (since interrupt is rising edge, does not debounce)
-        if ENCODER_LEFT_A
-            .borrow_ref_mut(cs)
-            .as_mut()
-            .unwrap()
-            .is_high()
-        {
-            ENCODER_LEFT_TICKS
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current_ticks| {
-                    Some(
-                        match ENCODER_LEFT_D.borrow_ref(cs).as_ref().unwrap().get_level() {
-                            Level::Low => current_ticks + 1.0,
-                            Level::High => current_ticks - 1.0,
-                        },
-                    )
-                })
-                .unwrap();
-            // Reset the left encoder's interrupt status
-            ENCODER_LEFT_A
-                .borrow_ref_mut(cs)
-                .as_mut()
-                .unwrap()
-                .clear_interrupt()
-        }
-    });
-
-    critical_section::with(|cs| {
-        // Check that the left encoder caused an interrupt (since interrupt is rising edge, does not debounce)
-        if ENCODER_RIGHT_A
-            .borrow_ref_mut(cs)
-            .as_mut()
-            .unwrap()
-            .is_high()
-        {
-            ENCODER_RIGHT_TICKS
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current_ticks| {
-                    Some(
-                        match ENCODER_RIGHT_D.borrow_ref(cs).as_ref().unwrap().get_level() {
-                            Level::Low => current_ticks + 1.0,
-                            Level::High => current_ticks - 1.0,
-                        },
-                    )
-                })
-                .unwrap();
-            // Reset the right encoder's interrupt status
-            ENCODER_RIGHT_A
-                .borrow_ref_mut(cs)
-                .as_mut()
-                .unwrap()
-                .clear_interrupt()
-        }
-    });
 }
