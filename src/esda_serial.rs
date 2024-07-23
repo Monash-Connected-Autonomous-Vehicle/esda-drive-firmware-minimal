@@ -12,15 +12,15 @@ use crate::{
     esda_throttle,
 };
 
-const MESSAGE_SIZE: usize = 8;
-
 // rx_fifo_full_threshold
 pub(crate) const READ_BUF_SIZE: usize = 64;
 // EOT (CTRL-D)
 pub(crate) const AT_CMD: u8 = 0x04;
 
 #[embassy_executor::task]
-pub(crate) async fn writer(_tx: UartTx<'static, UART0, Async>) {
+pub(crate) async fn writer(_tx: UartTx<'static, UART0, Async>,
+serial_forwarding_signal: &'static Signal<NoopRawMutex, esda_interface::ESDAMessage>,
+) {
 
     // embedded_io_async::Write::write(
     //     &mut tx,
@@ -53,10 +53,10 @@ pub(crate) async fn reader(
             Ok(len) => {
                 esp_println::dbg!("RAW({len} bytes, data: {:?})", &read_buffer[..offset]);
                 // Loop over the messages
-                for message_offset in 0..len / MESSAGE_SIZE {
+                for message_offset in 0..len / esda_interface::MESSAGE_SIZE {
                     // NOTE: Should be little endian :fingers_crossed_emoji:
                     match esda_interface::ESDAMessage::from_le_bytes(
-                        &read_buffer[0 + message_offset..MESSAGE_SIZE + message_offset],
+                        &read_buffer[0 + message_offset..esda_interface::MESSAGE_SIZE + message_offset],
                     ) {
                         // If we got a valid message
                         Ok(message) => {

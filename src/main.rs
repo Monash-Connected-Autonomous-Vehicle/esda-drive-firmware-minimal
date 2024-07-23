@@ -1,10 +1,11 @@
-//! embassy hello world
+//! Embassy ESP-NOW Example
 //!
-//! This is an example of running the embassy executor with multiple tasks
-//! concurrently.
+//! Broadcasts, receives and sends messages via esp-now in an async way
+//!
+//! Because of the huge task-arena size configured this won't work on ESP32-S2
 
-//% CHIPS: esp32 esp32c2 esp32c3 esp32c6 esp32h2 esp32s2 esp32s3
-//% FEATURES: embassy esp-hal-embassy/integrated-timers
+//% FEATURES: async embassy embassy-generic-timers esp-wifi esp-wifi/async esp-wifi/embassy-net esp-wifi/wifi-default esp-wifi/wifi esp-wifi/utils esp-wifi/esp-now
+//% CHIPS: esp32 esp32s3 esp32c2 esp32c3 esp32c6
 
 #![no_std]
 #![no_main]
@@ -15,7 +16,9 @@ use core::{cell::RefCell, sync::atomic::Ordering};
 use atomic_float::AtomicF32;
 use critical_section::Mutex;
 use embassy_executor::Spawner;
+use embassy_futures::select::{select, Either};
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
+use embassy_time::{Duration, Ticker};
 use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
@@ -24,8 +27,9 @@ use esp_hal::{
     mcpwm::{operator::PwmPinConfig, timer::PwmWorkingMode, McPwm, PeripheralClockConfig},
     peripherals::Peripherals,
     prelude::*,
+    rng::Rng,
     system::SystemControl,
-    timer::{timg::TimerGroup, ErasedTimer, OneShotTimer},
+    timer::{timg::TimerGroup, ErasedTimer, OneShotTimer, PeriodicTimer},
     uart::{self, config::AtCmdConfig},
 };
 use esp_println::println;
@@ -40,6 +44,14 @@ mod pwm_extension;
 /// Module containing code for esda serial interface
 mod esda_serial;
 mod esda_throttle;
+
+/// Module for handling esda wireless implementation
+mod esda_wireless;
+
+use esp_wifi::{
+    esp_now::{PeerInfo, BROADCAST_ADDRESS},
+    initialize, EspWifiInitFor,
+};
 
 // 18, 19, 21
 const ENCODER_LEFT_A_PIN: u8 = 18;
@@ -78,6 +90,7 @@ async fn main(spawner: Spawner) {
     println!("Initialising Runtime...");
     // Initialise Peripherals handle
     let peripherals = Peripherals::take();
+
     // Initialise system control handle
     let system = SystemControl::new(peripherals.SYSTEM);
     // Configure clocks and lock settings until next reboot
@@ -161,8 +174,6 @@ async fn main(spawner: Spawner) {
         Signal<NoopRawMutex, esda_throttle::ThrottleSetCommand>,
     > = StaticCell::new();
     let throttle_command_signal = &*THROTTLE_COMMAND_SIGNAL.init(Signal::new());
-    // Initialise signal channel for estop
-    static ESTOP_SIGNAL: StaticCell<Signal<NoopRawMutex, bool>> = StaticCell::new();
 
     // Spawn throttle driver task
     spawner
@@ -173,6 +184,13 @@ async fn main(spawner: Spawner) {
     println!("Encoder Init complete!");
 
     println!("Initialising UART Connection to PC");
+    // Initialise signal channel for forwarding espnow messages to serial
+    static SERIAL_FORWARDING_SIGNAL: StaticCell<
+    Signal<NoopRawMutex, esda_interface::ESDAMessage>,
+> = StaticCell::new();
+let serial_forwarding_signal = &*SERIAL_FORWARDING_SIGNAL.init(Signal::new());
+
+
     // Define pins for UART connection in IO MUX (Pins 1 and 3 are Standard)
     let (tx_pin, rx_pin) = (io.pins.gpio1, io.pins.gpio3);
 
@@ -199,10 +217,29 @@ async fn main(spawner: Spawner) {
     spawner
         .spawn(esda_serial::reader(rx, &throttle_command_signal))
         .ok();
-    spawner.spawn(esda_serial::writer(tx)).ok();
+    spawner.spawn(esda_serial::writer(tx, &serial_forwarding_signal)).ok();
     println!("Finished UART Initialisation!");
 
-    println!("Fully Initialised!");
+    println!("Starting esp-now Initialisation");
+    let timer = PeriodicTimer::new(
+        esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG1, &clocks, None)
+            .timer1
+            .into(),
+    );
+
+    let init = initialize(
+        EspWifiInitFor::Wifi,
+        timer,
+        Rng::new(peripherals.RNG),
+        peripherals.RADIO_CLK,
+        &clocks,
+    )
+    .unwrap();
+
+    let wifi = peripherals.WIFI;
+    let mut esp_now = esp_wifi::esp_now::EspNow::new(&init, wifi).unwrap();
+    println!("esp-now version {}", esp_now.get_version().unwrap());
+
 }
 
 #[handler]
