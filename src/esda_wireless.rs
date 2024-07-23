@@ -19,7 +19,7 @@ pub async fn wireless_receiver(
     loop {
         // Wait until we receive an espnow packet
         let received_packet = esp_now.receive_async().await;
-        dbg!("Received packet {received_packet:?}");
+        dbg!("WIRELESS_RECEIVER<DEBUG>: Received packet {}", received_packet);
         let source_mac = received_packet.info.src_address;
         let dest_mac = received_packet.info.src_address;
         // If the packet was broadcast to all peers
@@ -34,14 +34,14 @@ pub async fn wireless_receiver(
                         channel: None,
                         encrypt: false,
                     })
-                    .expect("Failed to add peer to known peers");
+                    .expect("WIRELESS_RECEIVER<FATAL>: Failed to add peer to known peers");
             }
         }
 
         // Handle the data sent from the esp
         let packet_data = received_packet.data;
         if received_packet.len % esda_interface::MESSAGE_SIZE as u8 != 0 {
-            println!("ERROR: Received packet not containing a whole number of messages")
+            println!("WIRELESS_RECEIVER<ERROR>: Received packet not containing a whole number of messages {}", received_packet.len)
         }
         // Process all the messages in the packet
         for message_index in 0..(received_packet.len as usize) / esda_interface::MESSAGE_SIZE {
@@ -62,10 +62,11 @@ pub async fn wireless_receiver(
                             }),
                         // Forward steering messages to serial (handled by ROS2)
                         esda_interface::ESDAMessageID::SteerAmount => {
+                            dbg!("WIRELESS_RECEIVER<DEBUG>: Forwarding steering changes ({}) to ROS2", message);
                             serial_forwarding_signal.signal(message);
                         }
                         esda_interface::ESDAMessageID::ESTOP => {
-                            println!("ESP_NOW: Received E-Stop Signal, idling ESCs and ignoring all further throttle commands!");
+                            println!("WIRELESS_RECEIVER: Received E-Stop Signal, idling ESCs and ignoring all further throttle commands!");
                             throttle_command_signal
                                 .signal(esda_throttle::ThrottleCommand::EngageEStop)
                         }

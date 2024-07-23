@@ -12,7 +12,7 @@ use embassy_executor::task;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 use esp_hal::{gpio::GpioPin, mcpwm::operator::PwmPin};
-use esp_println::println;
+use esp_println::{dbg, println};
 
 use crate::pwm_extension::PwmPinExtension;
 
@@ -70,6 +70,9 @@ pub async fn throttle_driver(
             match received_throttle_command {
                 // Set the escs to neutral for 3 seconds
                 ThrottleCommand::ArmESCs | ThrottleCommand::EngageEStop => {
+                    dbg!(
+                        "THROTTLE_DRIVER<DEBUG>: Arming ESCs..."
+                    );
                     // Set left pwm
                     set_pwm_microseconds(THROTTLE_PWM_HANDLE_LEFT.borrow_ref_mut(cs), 1500.0);
                     // Set right pwm
@@ -79,9 +82,10 @@ pub async fn throttle_driver(
                 ThrottleCommand::SetThrottleLeft { new_throttle } => {
                     if !ESCS_ARMED.load(Ordering::SeqCst) {
                         println!(
-                            "Ignoring new left throttle value {new_throttle} as ESCs are not armed"
+                            "THROTTLE_DRIVER<WARN>: Ignoring new left throttle value {new_throttle} as ESCs are not armed"
                         );
                     } else {
+                        dbg!("THROTTLE_DRIVER<DEBUG>: Setting left throttle to {}", new_throttle);
                         set_pwm_microseconds(
                             THROTTLE_PWM_HANDLE_LEFT.borrow_ref_mut(cs),
                             new_throttle,
@@ -91,9 +95,10 @@ pub async fn throttle_driver(
                 ThrottleCommand::SetThrottleRight { new_throttle } => {
                     if !ESCS_ARMED.load(Ordering::SeqCst) {
                         println!(
-                            "Ignoring new left throttle value {new_throttle} as ESCs are not armed"
+                            "THROTTLE_DRIVER<WARN>: Ignoring new left throttle value {new_throttle} as ESCs are not armed"
                         );
                     } else {
+                        dbg!("THROTTLE_DRIVER<DEBUG>: Setting right throttle to {}", new_throttle);
                         set_pwm_microseconds(
                             THROTTLE_PWM_HANDLE_RIGHT.borrow_ref_mut(cs),
                             new_throttle,
@@ -105,9 +110,10 @@ pub async fn throttle_driver(
 
         // Wait three seconds for the escs to arm
         if matches!(received_throttle_command, ThrottleCommand::ArmESCs) {
+            dbg!("THROTTLE_DRIVER: ESCs set to idle, Allowing 3 seconds for ESCs to Arm themselves...");
             Timer::after(Duration::from_millis(3_000)).await;
             ESCS_ARMED.store(true, Ordering::SeqCst);
-            println!("ESCs Armed");
+            println!("THROTTLE_DRIVER: ESCs Armed!");
         }
     }
 }
@@ -134,6 +140,6 @@ where
     // - another task has taken the handle (there are no other tasks which use these mutexes)
     // - the pwm code has not even been initialised yet (this task is started after that happens)
     else {
-        println!("ERROR: Failed to set throttle - pwm handle is uninitialised or has been taken by another task");
+        println!("THROTTLE_DRIVER(SET_PWM_MICROSECONDS)<ERROR>: Failed to set throttle - pwm handle is uninitialised or has been taken by another task");
     }
 }

@@ -9,7 +9,7 @@ use esp_hal::{
     uart::{UartRx, UartTx},
     Async,
 };
-use esp_println::println;
+use esp_println::{dbg, println};
 
 use crate::{
     esda_interface::{self},
@@ -45,7 +45,7 @@ pub(crate) async fn serial_reader(
         match read_result {
             // If we successfully read from the read buffer
             Ok(len) => {
-                esp_println::dbg!("RAW({len} bytes, data: {:?})", &read_buffer[..offset]);
+                dbg!("SERIAL_READER<DEBUG>: Received ({len} bytes, data: {:?})", &read_buffer[..offset]);
                 // Loop over the messages
                 for message_offset in 0..len / esda_interface::MESSAGE_SIZE {
                     // NOTE: Should be little endian :fingers_crossed_emoji:
@@ -81,7 +81,7 @@ pub(crate) async fn serial_reader(
                             }
                         }
                         Err(invalid_data) => {
-                            println!("SERIAL_READER: Got invalid message {invalid_data:?}")
+                            println!("SERIAL_READER<ERROR>: Got invalid message {invalid_data:?}")
                         }
                     }
                 }
@@ -89,7 +89,7 @@ pub(crate) async fn serial_reader(
                 offset += len;
             }
             // Otherwise log the error
-            Err(e) => println!("Serial RX Error: {:?}", e),
+            Err(e) => println!("SERIAL_READER<ERROR>: Serial RX Error: {:?}", e),
         }
     }
 }
