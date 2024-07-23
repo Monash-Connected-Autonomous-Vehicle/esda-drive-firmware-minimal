@@ -72,7 +72,8 @@ pub async fn speedometer(speedo_transmit_signal: &'static Signal<NoopRawMutex, (
     }
 }
 
-#[task]
+// Allow 2 instances of this task
+#[task(pool_size = 2)]
 pub async fn tick_counter(tick_counter: &'static AtomicF32, mut pin_a: Input<'static, impl InputPin>, pin_d: Input<'static, impl InputPin>, pos_direction: Direction) {
     loop {
         // Wait for rising edge on the pin
