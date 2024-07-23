@@ -1,3 +1,9 @@
+// MCAV - Asterius MCU Firmware - pwm_extension
+//
+// Contains extension trait for PwmPin, allowing for esda_throttle::apply_throttle_command to be pin-agnostic
+//
+// Authors: Nigecat, BMCG0011
+
 use esp_hal::{
     gpio::OutputPin,
     mcpwm::{operator::PwmPin, PwmPeripheral},

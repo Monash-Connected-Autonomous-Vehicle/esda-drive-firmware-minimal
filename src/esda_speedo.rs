@@ -1,4 +1,3 @@
-use core::pin;
 use core::{cell::RefCell, f32::consts::PI, sync::atomic::Ordering};
 
 use atomic_float::AtomicF32;
@@ -6,14 +5,8 @@ use critical_section::Mutex;
 use embassy_executor::task;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
-use esp_hal::gpio::{InputPin, RtcInputPin};
-use esp_hal::peripheral::PeripheralRef;
-use esp_hal::prelude::ram;
-use esp_hal::{
-    gpio::{GpioPin, Input, Level},
-    macros::handler,
-};
-use esp_println::println;
+use esp_hal::gpio::InputPin;
+use esp_hal::gpio::{GpioPin, Input, Level};
 
 /// Number of encoder ticks per full axial revolution
 const ENCODER_TICKS_PER_REVOLUTION: f32 = 1024.0;
@@ -48,11 +41,11 @@ pub static ENCODER_RIGHT_TICKS: AtomicF32 = AtomicF32::new(0.0);
 
 pub enum Direction {
     Clockwise,
-    Anticlockwise
+    Anticlockwise,
 }
 
 #[task]
-pub async fn speedometer(speedo_transmit_signal: &'static Signal<NoopRawMutex, (f32, f32)>, ) {
+pub async fn speedometer(speedo_transmit_signal: &'static Signal<NoopRawMutex, (f32, f32)>) {
     loop {
         // Read and then reset the left and right tick countersS
         let left_ticks = ENCODER_LEFT_TICKS
@@ -74,25 +67,32 @@ pub async fn speedometer(speedo_transmit_signal: &'static Signal<NoopRawMutex, (
 
 // Allow 2 instances of this task
 #[task(pool_size = 2)]
-pub async fn tick_counter(tick_counter: &'static AtomicF32, mut pin_a: Input<'static, impl InputPin>, pin_d: Input<'static, impl InputPin>, pos_direction: Direction) {
+pub async fn tick_counter(
+    tick_counter: &'static AtomicF32,
+    mut pin_a: Input<'static, impl InputPin>,
+    pin_d: Input<'static, impl InputPin>,
+    pos_direction: Direction,
+) {
     loop {
         // Wait for rising edge on the pin
         pin_a.wait_for_rising_edge().await;
         // If the second pin is high then the tick was clockwise,
         // Otherwise it was anticlockwise
-        tick_counter.fetch_update(Ordering::SeqCst, Ordering::SeqCst, | current_ticks: f32 | {
-            Some(
-                current_ticks + 
-                match pin_d.get_level() {
+        tick_counter
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current_ticks: f32| {
+                Some(
+                    current_ticks
+                        + match pin_d.get_level() {
                     Level::Low => -1.0,
                     Level::High => 1.0
-                }
-                // Invert if the direction is inverted
-                * match pos_direction {
-                    Direction::Clockwise => -1.0,
-                    Direction::Anticlockwise => 1.0,
-                },
-            )
-        }).unwrap();
+                    }
+                    // Invert if the direction is inverted
+                    * match pos_direction {
+                        Direction::Clockwise => -1.0,
+                        Direction::Anticlockwise => 1.0,
+                    },
+                )
+            })
+            .unwrap();
     }
 }

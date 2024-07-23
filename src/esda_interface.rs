@@ -1,3 +1,7 @@
+// MCAV - Asterius MCU Firmware - esda_interface
+//
+// Authors: BMCG0011
+
 #[repr(u32)]
 /// Convenient wrapper around the u32 used to denote the 'topic' being described by a control message
 #[derive(Clone, Copy, Debug)]
@@ -15,7 +19,7 @@ pub enum ESDAMessageID {
     SetAutonomousMode = 9,
 }
 
-/// The size of a single message in bytes
+/// The size of a single [ESDAMessage] in bytes
 pub const MESSAGE_SIZE: usize = 8;
 
 /// Struct wrapper around the u32 used to denote the 'topic' being described by a control message

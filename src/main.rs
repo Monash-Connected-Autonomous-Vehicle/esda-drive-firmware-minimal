@@ -1,24 +1,18 @@
-//! Embassy ESP-NOW Example
-//!
-//! Broadcasts, receives and sends messages via esp-now in an async way
-//!
-//! Because of the huge task-arena size configured this won't work on ESP32-S2
-
-//% FEATURES: async embassy embassy-generic-timers esp-wifi esp-wifi/async esp-wifi/embassy-net esp-wifi/wifi-default esp-wifi/wifi esp-wifi/utils esp-wifi/esp-now
-//% CHIPS: esp32 esp32s3 esp32c2 esp32c3 esp32c6
+// MCAV - Asterius MCU Firmware - main
+//
+// Authors: BMCG0011, Samuel Tri
 
 #![no_std]
 #![no_main]
 #![allow(dead_code)]
 
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
-use embassy_time::{Duration, Ticker};
+use embassy_time::Timer;
 use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
-    gpio::{Event, GpioPin, Input, Io, Pull},
+    gpio::{GpioPin, Input, Io, Pull},
     mcpwm::{operator::PwmPinConfig, timer::PwmWorkingMode, McPwm, PeripheralClockConfig},
     peripherals::Peripherals,
     prelude::*,
@@ -27,22 +21,17 @@ use esp_hal::{
     timer::{timg::TimerGroup, ErasedTimer, OneShotTimer, PeriodicTimer},
     uart::{self, config::AtCmdConfig},
 };
-
-use esp_wifi::{
-    esp_now::{PeerInfo, BROADCAST_ADDRESS},
-    initialize, EspWifiInitFor,
-};
-
-use esp_println::println;
+use esp_println::{dbg, println};
+use esp_wifi::{initialize, EspWifiInitFor};
 use static_cell::StaticCell;
 
 /// Module containing interface types for communicating with controller (via esp-now) and the computer (via serial)
 mod esda_interface;
 
-// Don't ask
+/// Module containing extension trait allowing for functions to accept pin-agnostic InputPin handles
 mod pwm_extension;
 
-/// Module containing code for esda serial interface
+/// Module containing uart serial writer and receiver tasks
 mod esda_serial;
 
 /// Module containing throttle pwm driver
@@ -69,9 +58,8 @@ macro_rules! mk_static {
 async fn main(spawner: Spawner) {
     esp_println::logger::init_logger_from_env();
 
-    println!("Beginning Asterius Firmware Initialisation...");
-
-    println!("Initialising Runtime...");
+    println!("MAIN: Beginning Asterius Firmware Initialisation...");
+    dbg!("MAIN<DEBUG>: Initialising Peripherals");
     // Initialise Peripherals handle
     let peripherals = Peripherals::take();
 
@@ -80,7 +68,7 @@ async fn main(spawner: Spawner) {
     // Configure clocks and lock settings until next reboot
     let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
     // Initialise main IO driver
-    let mut io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
+    let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
 
     // Initialise Timers and the embassy runtime
     let timg0 = TimerGroup::new(peripherals.TIMG0, &clocks, None);
@@ -90,53 +78,46 @@ async fn main(spawner: Spawner) {
     esp_hal_embassy::init(&clocks, timers);
 
     // Initialise rotary encoders
-    println!("Initialisng Rotary Encoders...");
+    println!("MAIN: Initialisng Rotary Encoders...");
     let encoder_left_a = io.pins.gpio18;
     let encoder_left_d = io.pins.gpio19;
     let encoder_right_a = io.pins.gpio34;
     let encoder_right_d = io.pins.gpio33;
-    let mut encoder_left_a = Input::new(encoder_left_a, Pull::Down);
+    let encoder_left_a = Input::new(encoder_left_a, Pull::Down);
     let encoder_left_d = Input::new(encoder_left_d, Pull::Down);
-    let mut encoder_right_a = Input::new(encoder_right_a, Pull::Down);
+    let encoder_right_a = Input::new(encoder_right_a, Pull::Down);
     let encoder_right_d = Input::new(encoder_right_d, Pull::Down);
 
-    // Initialise global handles to encoders
-    // critical_section::with(|cs| {
-    //     encoder_left_a.listen(Event::RisingEdge);
-    //     esda_speedo::ENCODER_LEFT_A
-    //         .borrow_ref_mut(cs)
-    //         .replace(encoder_left_a);
-    // });
-    // critical_section::with(|cs| {
-    //     encoder_right_a.listen(Event::RisingEdge);
-    //     esda_speedo::ENCODER_RIGHT_A
-    //         .borrow_ref_mut(cs)
-    //         .replace(encoder_right_a);
-    // });
-    // critical_section::with(|cs| {
-    //     esda_speedo::ENCODER_LEFT_D
-    //         .borrow_ref_mut(cs)
-    //         .replace(encoder_left_d);
-    // });
-    // critical_section::with(|cs| {
-    //     esda_speedo::ENCODER_RIGHT_D
-    //         .borrow_ref_mut(cs)
-    //         .replace(encoder_right_d);
-    // });
     println!("Spawning speedometer tasks...");
     // Initialise signal channel for throttle updates
     static SPEEDO_TICK_SIGNAL: StaticCell<Signal<NoopRawMutex, (f32, f32)>> = StaticCell::new();
     let speedo_tick_signal = &*SPEEDO_TICK_SIGNAL.init(Signal::new());
 
     // Spawn tick counters
-    spawner.spawn(esda_speedo::tick_counter(&esda_speedo::ENCODER_LEFT_TICKS, encoder_left_a, encoder_left_d, esda_speedo::Direction::Clockwise)).unwrap();
-    spawner.spawn(esda_speedo::tick_counter(&esda_speedo::ENCODER_RIGHT_TICKS, encoder_right_a, encoder_right_d, esda_speedo::Direction::Anticlockwise)).unwrap();
+    spawner
+        .spawn(esda_speedo::tick_counter(
+            &esda_speedo::ENCODER_LEFT_TICKS,
+            encoder_left_a,
+            encoder_left_d,
+            esda_speedo::Direction::Clockwise,
+        ))
+        .unwrap();
+    spawner
+        .spawn(esda_speedo::tick_counter(
+            &esda_speedo::ENCODER_RIGHT_TICKS,
+            encoder_right_a,
+            encoder_right_d,
+            esda_speedo::Direction::Anticlockwise,
+        ))
+        .unwrap();
 
     // Spawn Main Speedometer Task
-    spawner.spawn(esda_speedo::speedometer(&speedo_tick_signal)).ok();
+    spawner
+        .spawn(esda_speedo::speedometer(&speedo_tick_signal))
+        .ok();
     println!("Encoders Initialised...");
 
-    println!("Initialising throttle pwm pins...");
+    println!("MAIN: Initialising throttle_driver...");
     let left_throttle_pin: GpioPin<{ esda_throttle::THROTTLE_PWM_PIN_LEFT }> =
         GpioPin::<{ esda_throttle::THROTTLE_PWM_PIN_LEFT }>;
     let right_throttle_pin: GpioPin<{ esda_throttle::THROTTLE_PWM_PIN_RIGHT }> =
@@ -173,7 +154,7 @@ async fn main(spawner: Spawner) {
 
     // Initialise signal channel for throttle updates
     static THROTTLE_COMMAND_SIGNAL: StaticCell<
-        Signal<NoopRawMutex, esda_throttle::ThrottleSetCommand>,
+        Signal<NoopRawMutex, esda_throttle::ThrottleCommand>,
     > = StaticCell::new();
     let throttle_command_signal = &*THROTTLE_COMMAND_SIGNAL.init(Signal::new());
 
@@ -182,15 +163,13 @@ async fn main(spawner: Spawner) {
         .spawn(esda_throttle::throttle_driver(&throttle_command_signal))
         .unwrap();
 
-    println!("Throttle driver initialised!");
+    dbg!("MAIN<DEBUG>: THROTTLE_DRIVER Init complete!");
 
-    println!("Initialising UART Connection to ROS2 Stack...");
+    println!("MAIN: Initialising UART Connection to ROS2 Stack...");
     // Initialise signal channel for forwarding espnow messages to serial
-    static SERIAL_FORWARDING_SIGNAL: StaticCell<
-    Signal<NoopRawMutex, esda_interface::ESDAMessage>,
-> = StaticCell::new();
-let serial_forwarding_signal = &*SERIAL_FORWARDING_SIGNAL.init(Signal::new());
-
+    static SERIAL_FORWARDING_SIGNAL: StaticCell<Signal<NoopRawMutex, esda_interface::ESDAMessage>> =
+        StaticCell::new();
+    let serial_forwarding_signal = &*SERIAL_FORWARDING_SIGNAL.init(Signal::new());
 
     // Define pins for UART connection in IO MUX (Pins 1 and 3 are Standard)
     let (tx_pin, rx_pin) = (io.pins.gpio2, io.pins.gpio15);
@@ -214,16 +193,20 @@ let serial_forwarding_signal = &*SERIAL_FORWARDING_SIGNAL.init(Signal::new());
     // Split UART handle into TX and RX Channels
     let (tx, rx) = uart1.split();
 
-    println!("Spawning UART Tasks...");
+    dbg!("MAIN<DEBUG>: Spawning UART TX/RX Tasks...");
     spawner
-        .spawn(esda_serial::reader(rx, &throttle_command_signal))
+        .spawn(esda_serial::serial_reader(rx, &throttle_command_signal))
         .ok();
     spawner
-        .spawn(esda_serial::writer(tx, &serial_forwarding_signal, &speedo_tick_signal))
+        .spawn(esda_serial::serial_writer(
+            tx,
+            &serial_forwarding_signal,
+            &speedo_tick_signal,
+        ))
         .ok();
-    println!("Finished UART Initialisation!");
+    dbg!("MAIN<DBG>: Finished UART Initialisation!");
 
-    println!("Starting esp-now Initialisation");
+    println!("MAIN: Starting esp-now Initialisation");
     let timer = PeriodicTimer::new(
         esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG1, &clocks, None)
             .timer1
@@ -240,7 +223,24 @@ let serial_forwarding_signal = &*SERIAL_FORWARDING_SIGNAL.init(Signal::new());
     .unwrap();
 
     let wifi = peripherals.WIFI;
-    let mut esp_now = esp_wifi::esp_now::EspNow::new(&init, wifi).unwrap();
-    println!("esp-now version {}", esp_now.get_version().unwrap());
+    let esp_now = esp_wifi::esp_now::EspNow::new(&init, wifi).unwrap();
+    dbg!(
+        "MAIN<DEBUG>: esp-now version {}",
+        esp_now.get_version().unwrap()
+    );
 
+    // Spawn the esp_now receiver thread
+    spawner
+        .spawn(esda_wireless::wireless_receiver(
+            esp_now,
+            &throttle_command_signal,
+            &serial_forwarding_signal,
+        ))
+        .unwrap();
+    dbg!("MAIN<DBG>: Finished UART Initialisation!");
+
+    // Infinite loop to prevent watchdog from tripping
+    loop {
+        Timer::after_secs(3).await;
+    }
 }
