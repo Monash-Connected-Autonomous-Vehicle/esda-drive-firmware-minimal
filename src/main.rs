@@ -6,17 +6,13 @@
 #![no_main]
 #![allow(dead_code)]
 
-use core::cell::RefCell;
-
-use atomic_float::AtomicF32;
-use critical_section::Mutex;
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use embassy_time::Timer;
 use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
-    gpio::{Event, GpioPin, Input, Io, Pull},
+    gpio::{GpioPin, Input, Io, Pull},
     mcpwm::{operator::PwmPinConfig, timer::PwmWorkingMode, McPwm, PeripheralClockConfig},
     peripherals::Peripherals,
     prelude::*,
@@ -26,6 +22,7 @@ use esp_hal::{
     uart::{self, config::AtCmdConfig},
 };
 use esp_println::{dbg, println};
+use esp_wifi::{initialize, EspWifiInitFor};
 use static_cell::StaticCell;
 
 /// Module containing interface types for communicating with controller (via esp-now) and the computer (via serial)
@@ -37,30 +34,14 @@ mod pwm_extension;
 /// Module containing uart serial writer and receiver tasks
 mod esda_serial;
 
+/// Module containing throttle pwm driver
 mod esda_throttle;
 
 /// Module for handling esda wireless implementation
 mod esda_wireless;
 
-use esp_wifi::{initialize, EspWifiInitFor};
-
-// 18, 19, 21
-const ENCODER_LEFT_A_PIN: u8 = 18;
-const ENCODER_LEFT_D_PIN: u8 = 19;
-static ENCODER_LEFT_A: Mutex<RefCell<Option<Input<GpioPin<{ ENCODER_LEFT_A_PIN }>>>>> =
-    Mutex::new(RefCell::new(None));
-static ENCODER_LEFT_D: Mutex<RefCell<Option<Input<GpioPin<{ ENCODER_LEFT_D_PIN }>>>>> =
-    Mutex::new(RefCell::new(None));
-static ENCODER_LEFT_TICKS: AtomicF32 = AtomicF32::new(0.0);
-
-// 34, 33, 32
-const ENCODER_RIGHT_A_PIN: u8 = 34;
-const ENCODER_RIGHT_D_PIN: u8 = 33;
-static ENCODER_RIGHT_A: Mutex<RefCell<Option<Input<GpioPin<{ ENCODER_RIGHT_A_PIN }>>>>> =
-    Mutex::new(RefCell::new(None));
-static ENCODER_RIGHT_D: Mutex<RefCell<Option<Input<GpioPin<{ ENCODER_RIGHT_D_PIN }>>>>> =
-    Mutex::new(RefCell::new(None));
-static ENCODER_RIGHT_TICKS: AtomicF32 = AtomicF32::new(0.0);
+// Speedometer derivation code
+mod esda_speedo;
 
 // Register the mk_static utility macro
 // NOTE: If using nightly compiler then use use https://docs.rs/static_cell/2.1.0/static_cell/macro.make_static.html instead
@@ -102,26 +83,39 @@ async fn main(spawner: Spawner) {
     let encoder_left_d = io.pins.gpio19;
     let encoder_right_a = io.pins.gpio34;
     let encoder_right_d = io.pins.gpio33;
-    let mut encoder_left_a = Input::new(encoder_left_a, Pull::Down);
+    let encoder_left_a = Input::new(encoder_left_a, Pull::Down);
     let encoder_left_d = Input::new(encoder_left_d, Pull::Down);
-    let mut encoder_right_a = Input::new(encoder_right_a, Pull::Down);
+    let encoder_right_a = Input::new(encoder_right_a, Pull::Down);
     let encoder_right_d = Input::new(encoder_right_d, Pull::Down);
 
-    // Initialise global handles to encoders
-    critical_section::with(|cs| {
-        encoder_left_a.listen(Event::RisingEdge);
-        ENCODER_LEFT_A.borrow_ref_mut(cs).replace(encoder_left_a);
-    });
-    critical_section::with(|cs| {
-        encoder_right_a.listen(Event::RisingEdge);
-        ENCODER_RIGHT_A.borrow_ref_mut(cs).replace(encoder_right_a);
-    });
-    critical_section::with(|cs| {
-        ENCODER_LEFT_D.borrow_ref_mut(cs).replace(encoder_left_d);
-    });
-    critical_section::with(|cs| {
-        ENCODER_RIGHT_D.borrow_ref_mut(cs).replace(encoder_right_d);
-    });
+    println!("Spawning speedometer tasks...");
+    // Initialise signal channel for throttle updates
+    static SPEEDO_TICK_SIGNAL: StaticCell<Signal<NoopRawMutex, (f32, f32)>> = StaticCell::new();
+    let speedo_tick_signal = &*SPEEDO_TICK_SIGNAL.init(Signal::new());
+
+    // Spawn tick counters
+    spawner
+        .spawn(esda_speedo::tick_counter(
+            &esda_speedo::ENCODER_LEFT_TICKS,
+            encoder_left_a,
+            encoder_left_d,
+            esda_speedo::Direction::Clockwise,
+        ))
+        .unwrap();
+    spawner
+        .spawn(esda_speedo::tick_counter(
+            &esda_speedo::ENCODER_RIGHT_TICKS,
+            encoder_right_a,
+            encoder_right_d,
+            esda_speedo::Direction::Anticlockwise,
+        ))
+        .unwrap();
+
+    // Spawn Main Speedometer Task
+    spawner
+        .spawn(esda_speedo::speedometer(&speedo_tick_signal))
+        .ok();
+    println!("Encoders Initialised...");
 
     println!("MAIN: Initialising throttle_driver...");
     let left_throttle_pin: GpioPin<{ esda_throttle::THROTTLE_PWM_PIN_LEFT }> =
@@ -171,24 +165,24 @@ async fn main(spawner: Spawner) {
 
     dbg!("MAIN<DEBUG>: THROTTLE_DRIVER Init complete!");
 
-    println!("MAIN: Initialising UART Connection to PC...");
+    println!("MAIN: Initialising UART Connection to ROS2 Stack...");
     // Initialise signal channel for forwarding espnow messages to serial
     static SERIAL_FORWARDING_SIGNAL: StaticCell<Signal<NoopRawMutex, esda_interface::ESDAMessage>> =
         StaticCell::new();
     let serial_forwarding_signal = &*SERIAL_FORWARDING_SIGNAL.init(Signal::new());
 
     // Define pins for UART connection in IO MUX (Pins 1 and 3 are Standard)
-    let (tx_pin, rx_pin) = (io.pins.gpio1, io.pins.gpio3);
+    let (tx_pin, rx_pin) = (io.pins.gpio2, io.pins.gpio15);
 
     // Define configuration for UART
     let config =
         uart::config::Config::default().rx_fifo_full_threshold(esda_serial::READ_BUF_SIZE as u16);
 
     // Initialise UART
-    let mut uart0 =
-        uart::Uart::new_async_with_config(peripherals.UART0, config, &clocks, tx_pin, rx_pin)
+    let mut uart1 =
+        uart::Uart::new_async_with_config(peripherals.UART1, config, &clocks, tx_pin, rx_pin)
             .unwrap();
-    uart0.set_at_cmd(AtCmdConfig::new(
+    uart1.set_at_cmd(AtCmdConfig::new(
         None,
         None,
         None,
@@ -197,14 +191,18 @@ async fn main(spawner: Spawner) {
     ));
 
     // Split UART handle into TX and RX Channels
-    let (tx, rx) = uart0.split();
+    let (tx, rx) = uart1.split();
 
     dbg!("MAIN<DEBUG>: Spawning UART TX/RX Tasks...");
     spawner
         .spawn(esda_serial::serial_reader(rx, &throttle_command_signal))
         .ok();
     spawner
-        .spawn(esda_serial::serial_writer(tx, &serial_forwarding_signal))
+        .spawn(esda_serial::serial_writer(
+            tx,
+            &serial_forwarding_signal,
+            &speedo_tick_signal,
+        ))
         .ok();
     dbg!("MAIN<DBG>: Finished UART Initialisation!");
 
@@ -226,7 +224,10 @@ async fn main(spawner: Spawner) {
 
     let wifi = peripherals.WIFI;
     let esp_now = esp_wifi::esp_now::EspNow::new(&init, wifi).unwrap();
-    dbg!("MAIN<DEBUG>: esp-now version {}", esp_now.get_version().unwrap());
+    dbg!(
+        "MAIN<DEBUG>: esp-now version {}",
+        esp_now.get_version().unwrap()
+    );
 
     // Spawn the esp_now receiver thread
     spawner
@@ -242,5 +243,4 @@ async fn main(spawner: Spawner) {
     loop {
         Timer::after_secs(3).await;
     }
-
 }

@@ -70,9 +70,7 @@ pub async fn throttle_driver(
             match received_throttle_command {
                 // Set the escs to neutral for 3 seconds
                 ThrottleCommand::ArmESCs | ThrottleCommand::EngageEStop => {
-                    dbg!(
-                        "THROTTLE_DRIVER<DEBUG>: Arming ESCs..."
-                    );
+                    dbg!("THROTTLE_DRIVER<DEBUG>: Arming ESCs...");
                     // Set left pwm
                     set_pwm_microseconds(THROTTLE_PWM_HANDLE_LEFT.borrow_ref_mut(cs), 1500.0);
                     // Set right pwm
@@ -85,7 +83,10 @@ pub async fn throttle_driver(
                             "THROTTLE_DRIVER<WARN>: Ignoring new left throttle value {new_throttle} as ESCs are not armed"
                         );
                     } else {
-                        dbg!("THROTTLE_DRIVER<DEBUG>: Setting left throttle to {}", new_throttle);
+                        dbg!(
+                            "THROTTLE_DRIVER<DEBUG>: Setting left throttle to {}",
+                            new_throttle
+                        );
                         set_pwm_microseconds(
                             THROTTLE_PWM_HANDLE_LEFT.borrow_ref_mut(cs),
                             new_throttle,
@@ -98,7 +99,10 @@ pub async fn throttle_driver(
                             "THROTTLE_DRIVER<WARN>: Ignoring new left throttle value {new_throttle} as ESCs are not armed"
                         );
                     } else {
-                        dbg!("THROTTLE_DRIVER<DEBUG>: Setting right throttle to {}", new_throttle);
+                        dbg!(
+                            "THROTTLE_DRIVER<DEBUG>: Setting right throttle to {}",
+                            new_throttle
+                        );
                         set_pwm_microseconds(
                             THROTTLE_PWM_HANDLE_RIGHT.borrow_ref_mut(cs),
                             new_throttle,

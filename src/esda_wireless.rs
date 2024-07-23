@@ -19,7 +19,10 @@ pub async fn wireless_receiver(
     loop {
         // Wait until we receive an espnow packet
         let received_packet = esp_now.receive_async().await;
-        dbg!("WIRELESS_RECEIVER<DEBUG>: Received packet {}", received_packet);
+        dbg!(
+            "WIRELESS_RECEIVER<DEBUG>: Received packet {}",
+            received_packet
+        );
         let source_mac = received_packet.info.src_address;
         let dest_mac = received_packet.info.src_address;
         // If the packet was broadcast to all peers
