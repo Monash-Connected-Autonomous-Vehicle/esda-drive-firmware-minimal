@@ -1,0 +1,2 @@
+# esda-drive-firmware-minimal
+Bare metal rust implementation of [IntegratedControl](https://github.com/Monash-Connected-Autonomous-Vehicle/IntegratedControl) using [esp-hal](https://github.com/esp-rs/esp-hal) and [embedded async](https://embassy.dev)
