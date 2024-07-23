@@ -1,13 +1,21 @@
+// MCAV - Asterius MCU Firmware - esda_wireless
+//
+// Authors: BMCG0011, Samuel Tri
 use embassy_executor::task;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
-use esp_println::{dbg, print, println};
-use esp_wifi::esp_now::{self, EspNow, PeerInfo, BROADCAST_ADDRESS};
-use smoltcp::wire::{DhcpMessageType, Icmpv4Message};
+use esp_println::{dbg, println};
+use esp_wifi::esp_now::{EspNow, PeerInfo, BROADCAST_ADDRESS};
 
 use crate::{esda_interface, esda_throttle};
 
+/// Receiver task responsible for decoding and handling [ESDAMessages](crate::esda_interface::ESDAMessage) sent from the handheld controller over ESP-Now,
+/// It is also responsible for manipulating and propagating them as need be and propagating them to the relevant tasks through the appropriate [Signals](embassy_sync::signal::Signal) and/or [Channels](embassy_sync::channel::Channel)
 #[task]
-pub async fn wireless_receiver(mut esp_now: EspNow<'static>, throttle_command_signal: &'static Signal<NoopRawMutex, esda_throttle::ThrottleSetCommand>, serial_forwarding_signal: &'static Signal<NoopRawMutex, esda_interface::ESDAMessage>) {
+pub async fn wireless_receiver(
+    mut esp_now: EspNow<'static>,
+    throttle_command_signal: &'static Signal<NoopRawMutex, esda_throttle::ThrottleCommand>,
+    serial_forwarding_signal: &'static Signal<NoopRawMutex, esda_interface::ESDAMessage>,
+) {
     loop {
         // Wait until we receive an espnow packet
         let received_packet = esp_now.receive_async().await;
@@ -44,33 +52,27 @@ pub async fn wireless_receiver(mut esp_now: EspNow<'static>, throttle_command_si
                 Ok(message) => {
                     match message.id {
                         // Forward throttle commands to throttle driver via signalling channel
-                        esda_interface::ESDAMessageID::SetTargetVelLeft => {
-                            throttle_command_signal.signal(
-                                esda_throttle::ThrottleSetCommand::SetThrottleLeft {
-                                    new_throttle: message.data,
-                                },
-                            )
-                        }
-                        esda_interface::ESDAMessageID::SetTargetVelRight => {
-                            throttle_command_signal.signal(
-                                esda_throttle::ThrottleSetCommand::SetThrottleRight {
-                                    new_throttle: message.data,
-                                },
-                            )
-                        }
+                        esda_interface::ESDAMessageID::SetTargetVelLeft => throttle_command_signal
+                            .signal(esda_throttle::ThrottleCommand::SetThrottleLeft {
+                                new_throttle: message.data,
+                            }),
+                        esda_interface::ESDAMessageID::SetTargetVelRight => throttle_command_signal
+                            .signal(esda_throttle::ThrottleCommand::SetThrottleRight {
+                                new_throttle: message.data,
+                            }),
                         // Forward steering messages to serial (handled by ROS2)
                         esda_interface::ESDAMessageID::SteerAmount => {
                             serial_forwarding_signal.signal(message);
-                        },
+                        }
                         esda_interface::ESDAMessageID::ESTOP => {
                             println!("ESP_NOW: Received E-Stop Signal, idling ESCs and ignoring all further throttle commands!");
                             throttle_command_signal
-                                .signal(esda_throttle::ThrottleSetCommand::EngageEStop)
+                                .signal(esda_throttle::ThrottleCommand::EngageEStop)
                         }
-                        esda_interface::ESDAMessageID::SetAutonomousMode => {},
+                        esda_interface::ESDAMessageID::SetAutonomousMode => {}
                         _ => {}
                     }
-                },
+                }
                 Err(_) => todo!(),
             }
         }

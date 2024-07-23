@@ -1,11 +1,6 @@
-//! Embassy ESP-NOW Example
-//!
-//! Broadcasts, receives and sends messages via esp-now in an async way
-//!
-//! Because of the huge task-arena size configured this won't work on ESP32-S2
-
-//% FEATURES: async embassy embassy-generic-timers esp-wifi esp-wifi/async esp-wifi/embassy-net esp-wifi/wifi-default esp-wifi/wifi esp-wifi/utils esp-wifi/esp-now
-//% CHIPS: esp32 esp32s3 esp32c2 esp32c3 esp32c6
+// MCAV - Asterius MCU Firmware - main
+//
+// Authors: BMCG0011, Samuel Tri
 
 #![no_std]
 #![no_main]
@@ -16,9 +11,7 @@ use core::{cell::RefCell, sync::atomic::Ordering};
 use atomic_float::AtomicF32;
 use critical_section::Mutex;
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
-use embassy_time::{Duration, Ticker};
 use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
@@ -38,20 +31,18 @@ use static_cell::StaticCell;
 /// Module containing interface types for communicating with controller (via esp-now) and the computer (via serial)
 mod esda_interface;
 
-// Don't ask
+/// Module containing extension trait allowing for functions to accept pin-agnostic InputPin handles
 mod pwm_extension;
 
-/// Module containing code for esda serial interface
+/// Module containing uart serial writer and receiver tasks
 mod esda_serial;
+
 mod esda_throttle;
 
 /// Module for handling esda wireless implementation
 mod esda_wireless;
 
-use esp_wifi::{
-    esp_now::{PeerInfo, BROADCAST_ADDRESS},
-    initialize, EspWifiInitFor,
-};
+use esp_wifi::{initialize, EspWifiInitFor};
 
 // 18, 19, 21
 const ENCODER_LEFT_A_PIN: u8 = 18;
@@ -171,7 +162,7 @@ async fn main(spawner: Spawner) {
 
     // Initialise signal channel for throttle updates
     static THROTTLE_COMMAND_SIGNAL: StaticCell<
-        Signal<NoopRawMutex, esda_throttle::ThrottleSetCommand>,
+        Signal<NoopRawMutex, esda_throttle::ThrottleCommand>,
     > = StaticCell::new();
     let throttle_command_signal = &*THROTTLE_COMMAND_SIGNAL.init(Signal::new());
 
@@ -185,11 +176,9 @@ async fn main(spawner: Spawner) {
 
     println!("Initialising UART Connection to PC");
     // Initialise signal channel for forwarding espnow messages to serial
-    static SERIAL_FORWARDING_SIGNAL: StaticCell<
-    Signal<NoopRawMutex, esda_interface::ESDAMessage>,
-> = StaticCell::new();
-let serial_forwarding_signal = &*SERIAL_FORWARDING_SIGNAL.init(Signal::new());
-
+    static SERIAL_FORWARDING_SIGNAL: StaticCell<Signal<NoopRawMutex, esda_interface::ESDAMessage>> =
+        StaticCell::new();
+    let serial_forwarding_signal = &*SERIAL_FORWARDING_SIGNAL.init(Signal::new());
 
     // Define pins for UART connection in IO MUX (Pins 1 and 3 are Standard)
     let (tx_pin, rx_pin) = (io.pins.gpio1, io.pins.gpio3);
@@ -215,9 +204,11 @@ let serial_forwarding_signal = &*SERIAL_FORWARDING_SIGNAL.init(Signal::new());
 
     println!("Spawning UART Tasks...");
     spawner
-        .spawn(esda_serial::reader(rx, &throttle_command_signal))
+        .spawn(esda_serial::serial_reader(rx, &throttle_command_signal))
         .ok();
-    spawner.spawn(esda_serial::writer(tx, &serial_forwarding_signal)).ok();
+    spawner
+        .spawn(esda_serial::serial_writer(tx, &serial_forwarding_signal))
+        .ok();
     println!("Finished UART Initialisation!");
 
     println!("Starting esp-now Initialisation");
@@ -237,9 +228,17 @@ let serial_forwarding_signal = &*SERIAL_FORWARDING_SIGNAL.init(Signal::new());
     .unwrap();
 
     let wifi = peripherals.WIFI;
-    let mut esp_now = esp_wifi::esp_now::EspNow::new(&init, wifi).unwrap();
+    let esp_now = esp_wifi::esp_now::EspNow::new(&init, wifi).unwrap();
     println!("esp-now version {}", esp_now.get_version().unwrap());
 
+    // Spawn the esp_now receiver thread
+    spawner
+        .spawn(esda_wireless::wireless_receiver(
+            esp_now,
+            &throttle_command_signal,
+            &serial_forwarding_signal,
+        ))
+        .unwrap();
 }
 
 #[handler]
