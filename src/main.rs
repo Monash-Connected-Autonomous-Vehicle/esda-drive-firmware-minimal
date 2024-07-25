@@ -193,15 +193,25 @@ async fn main(spawner: Spawner) {
     // Split UART handle into TX and RX Channels
     let (tx, rx) = uart1.split();
 
+    // Store the uart 
+    critical_section::with(|cs| {
+        esda_serial::UART_TX.replace_with(cs, |_|{ core::prelude::v1::Some(tx) });
+    });
+
     dbg!("MAIN<DEBUG>: Spawning UART TX/RX Tasks...");
     spawner
         .spawn(esda_serial::serial_reader(rx, &throttle_command_signal))
         .ok();
     spawner
-        .spawn(esda_serial::serial_writer(
-            tx,
-            &serial_forwarding_signal,
+        .spawn(esda_serial::speedo_serial_writer(
+            &esda_serial::UART_TX,
             &speedo_tick_signal,
+        ))
+        .ok();
+    spawner
+        .spawn(esda_serial::serial_forwarding_writer(
+            &esda_serial::UART_TX,
+            &serial_forwarding_signal,
         ))
         .ok();
     dbg!("MAIN<DBG>: Finished UART Initialisation!");
