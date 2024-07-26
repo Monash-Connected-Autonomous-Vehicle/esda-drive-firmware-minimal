@@ -52,11 +52,15 @@ pub(crate) async fn speedo_serial_writer(
             data: right_vel,
         };
         println!("Left {:?}, Right: {:?}\r\n", left, right);
-        critical_section::with(|cs| {
-            if tx.borrow_ref(cs).is_some() {
-                write!(tx.borrow_ref_mut(cs).as_mut().unwrap(), "{:?}\r\n", &left).unwrap()
-            }
-        });
+        let mut success = false;
+        while !success {
+            critical_section::with(|cs| {
+                if tx.borrow_ref(cs).is_some() {
+                    write!(tx.borrow_ref_mut(cs).as_mut().unwrap(), "{:?}\r\n", &left).unwrap();
+                    success = true;
+                }
+            });
+        }
     }
 }
 
@@ -68,12 +72,17 @@ pub(crate) async fn serial_forwarding_writer(
 ) {
     use core::fmt::Write;
     loop {
+        // Wait for us to be forwarded an ESDAMessage from the serial reader
         let message = serial_forwarding_signal.wait().await;
-        critical_section::with(|cs| {
-            if tx.borrow_ref(cs).is_some() {
-                write!(tx.borrow_ref_mut(cs).as_mut().unwrap(), "{:?}\r\n", message.to_le_bytes()).unwrap()
-            }
-        });
+        let mut success = false;
+        while !success {
+            critical_section::with(|cs| {
+                if tx.borrow_ref(cs).is_some() {
+                    write!(tx.borrow_ref_mut(cs).as_mut().unwrap(), "{:?}\r\n", message.to_le_bytes()).unwrap();
+                    success = true;
+                } 
+            });
+        } 
     }
 }
 
