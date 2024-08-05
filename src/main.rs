@@ -59,7 +59,7 @@ async fn main(spawner: Spawner) {
     esp_println::logger::init_logger_from_env();
 
     println!("MAIN: Beginning Asterius Firmware Initialisation...");
-    dbg!("MAIN<DEBUG>: Initialising Peripherals");
+    println!("MAIN<DEBUG>: Initialising Peripherals");
     // Initialise Peripherals handle
     let peripherals = Peripherals::take();
 
@@ -163,7 +163,7 @@ async fn main(spawner: Spawner) {
         .spawn(esda_throttle::throttle_driver(&throttle_command_signal))
         .unwrap();
 
-    dbg!("MAIN<DEBUG>: THROTTLE_DRIVER Init complete!");
+    println!("MAIN<DEBUG>: THROTTLE_DRIVER Init complete!");
 
     println!("MAIN: Initialising UART Connection to ROS2 Stack...");
     // Initialise signal channel for forwarding espnow messages to serial
@@ -198,7 +198,7 @@ async fn main(spawner: Spawner) {
         esda_serial::UART_TX.replace_with(cs, |_|{ core::prelude::v1::Some(tx) });
     });
 
-    dbg!("MAIN<DEBUG>: Spawning UART TX/RX Tasks...");
+    println!("MAIN<DEBUG>: Spawning UART TX/RX Tasks...");
     spawner
         .spawn(esda_serial::serial_reader(rx, &throttle_command_signal))
         .ok();
@@ -214,7 +214,7 @@ async fn main(spawner: Spawner) {
             &serial_forwarding_signal,
         ))
         .ok();
-    dbg!("MAIN<DBG>: Finished UART Initialisation!");
+    println!("MAIN<DBG>: Finished UART Initialisation!");
 
     println!("MAIN: Starting esp-now Initialisation");
     let timer = PeriodicTimer::new(
@@ -234,7 +234,7 @@ async fn main(spawner: Spawner) {
 
     let wifi = peripherals.WIFI;
     let esp_now = esp_wifi::esp_now::EspNow::new(&init, wifi).unwrap();
-    dbg!(
+    println!(
         "MAIN<DEBUG>: esp-now version {}",
         esp_now.get_version().unwrap()
     );
@@ -247,7 +247,7 @@ async fn main(spawner: Spawner) {
             &serial_forwarding_signal,
         ))
         .unwrap();
-    dbg!("MAIN<DBG>: Finished UART Initialisation!");
+    println!("MAIN<DBG>: Finished UART Initialisation!");
 
     // Infinite loop to prevent watchdog from tripping
     loop {

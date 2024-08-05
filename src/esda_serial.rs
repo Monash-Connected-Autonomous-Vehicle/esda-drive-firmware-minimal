@@ -2,7 +2,7 @@
 //
 // Authors: BMCG0011
 
-use core::cell::{RefCell, RefMut};
+use core::cell::{RefCell};
 
 use critical_section::Mutex;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
@@ -101,7 +101,7 @@ pub(crate) async fn serial_reader(
         match read_result {
             // If we successfully read from the read buffer
             Ok(len) => {
-                dbg!(
+                println!(
                     "SERIAL_READER<DEBUG>: Received ({len} bytes, data: {:?})",
                     &read_buffer[..offset]
                 );

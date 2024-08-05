@@ -4,7 +4,7 @@
 
 #[repr(u32)]
 /// Convenient wrapper around the u32 used to denote the 'topic' being described by a control message
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ESDAMessageID {
     SetTargetVelLeft = 1,
     SetTargetVelRight = 2,
@@ -23,7 +23,7 @@ pub enum ESDAMessageID {
 pub const MESSAGE_SIZE: usize = 8;
 
 /// Struct wrapper around the u32 used to denote the 'topic' being described by a control message
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ESDAMessage {
     pub id: ESDAMessageID,
     pub data: f32,
@@ -139,4 +139,17 @@ impl ESDAMessage {
 
         byte_form
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ESDAMessage;
+
+
+    #[test]
+    fn test_serialize_deserialize() {
+        let start_point = ESDAMessage { id: super::ESDAMessageID::CurrentVelLeft, data: 69.0 };
+        assert_eq!(start_point, ESDAMessage::from_le_bytes(&start_point.to_le_bytes()).unwrap());
+    }
+
 }

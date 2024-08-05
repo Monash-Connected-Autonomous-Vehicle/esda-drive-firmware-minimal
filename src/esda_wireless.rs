@@ -19,10 +19,10 @@ pub async fn wireless_receiver(
     loop {
         // Wait until we receive an espnow packet
         let received_packet = esp_now.receive_async().await;
-        dbg!(
-            "WIRELESS_RECEIVER<DEBUG>: Received packet {}",
-            received_packet
-        );
+        // println!(
+        //     "WIRELESS_RECEIVER<DEBUG>: Received packet {}",
+        //     received_packet
+        // );
         let source_mac = received_packet.info.src_address;
         let dest_mac = received_packet.info.src_address;
         // If the packet was broadcast to all peers
@@ -41,43 +41,61 @@ pub async fn wireless_receiver(
             }
         }
 
+        // Ignore rogue broadcasts
+        if source_mac != [0x7C,0x87,0xCE,0x2D,0x3C,0xE0] {
+            continue
+        }
+
         // Handle the data sent from the esp
         let packet_data = received_packet.data;
         if received_packet.len % esda_interface::MESSAGE_SIZE as u8 != 0 {
             println!("WIRELESS_RECEIVER<ERROR>: Received packet not containing a whole number of messages {}", received_packet.len)
         }
+
         // Process all the messages in the packet
         for message_index in 0..(received_packet.len as usize) / esda_interface::MESSAGE_SIZE {
-            match esda_interface::ESDAMessage::from_be_bytes(
+            match esda_interface::ESDAMessage::from_le_bytes(
                 &packet_data[0 + message_index..esda_interface::MESSAGE_SIZE + message_index],
             ) {
                 // If the message was valid
                 Ok(message) => {
                     match message.id {
                         // Forward throttle commands to throttle driver via signalling channel
-                        esda_interface::ESDAMessageID::SetTargetVelLeft => throttle_command_signal
+                        esda_interface::ESDAMessageID::SetTargetVelLeft => {
+                            throttle_command_signal
                             .signal(esda_throttle::ThrottleCommand::SetThrottleLeft {
                                 new_throttle: message.data,
-                            }),
-                        esda_interface::ESDAMessageID::SetTargetVelRight => throttle_command_signal
+                            });
+                            println!("WIRELESS_RECEIVER<DEBUG>: Forwarding Received change to left throttle: {:?}", message);
+                        },
+                        esda_interface::ESDAMessageID::SetTargetVelRight => {
+                            throttle_command_signal
                             .signal(esda_throttle::ThrottleCommand::SetThrottleRight {
                                 new_throttle: message.data,
-                            }),
+                            });
+                            println!("WIRELESS_RECEIVER<DEBUG>: Forwarding Received change to right throttle: {:?}", message);
+                        },
                         // Forward steering messages to serial (handled by ROS2)
                         esda_interface::ESDAMessageID::SteerAmount => {
-                            dbg!("WIRELESS_RECEIVER<DEBUG>: Forwarding steering changes ({}) to ROS2", message);
+                            let mut data: [u8; 8] = [0;8];
+                            data.copy_from_slice(&packet_data[0..=7]);
+                            println!("WIRELESS_RECEIVER: Received data {:?}",  &packet_data[0..=7]);
+                            println!("WIRELESS_RECEIVER<DEBUG>: Forwarding steering changes ({:?}) to ROS2", message);
+                            
                             serial_forwarding_signal.signal(message);
-                        }
+                        },
                         esda_interface::ESDAMessageID::ESTOP => {
                             println!("WIRELESS_RECEIVER: Received E-Stop Signal, idling ESCs and ignoring all further throttle commands!");
                             throttle_command_signal
                                 .signal(esda_throttle::ThrottleCommand::EngageEStop)
-                        }
-                        esda_interface::ESDAMessageID::SetAutonomousMode => {}
-                        _ => {}
+                        },
+                        esda_interface::ESDAMessageID::SetAutonomousMode => {},
+                        _ => {},
                     }
                 }
-                Err(_) => todo!(),
+                Err(e) => { let mut data: [u8; 8] = [0;8];
+                    data.copy_from_slice(&e[0..=7]);
+                    println!("WIRELESS_RECEIVER: Received invalid data {:b}",  u64::from_le_bytes(data)) },
             }
         }
     }

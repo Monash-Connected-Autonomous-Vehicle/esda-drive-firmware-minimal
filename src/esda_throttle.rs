@@ -70,7 +70,7 @@ pub async fn throttle_driver(
             match received_throttle_command {
                 // Set the escs to neutral for 3 seconds
                 ThrottleCommand::ArmESCs | ThrottleCommand::EngageEStop => {
-                    dbg!("THROTTLE_DRIVER<DEBUG>: Arming ESCs...");
+                    println!("THROTTLE_DRIVER<DEBUG>: Arming ESCs...");
                     // Set left pwm
                     set_pwm_microseconds(THROTTLE_PWM_HANDLE_LEFT.borrow_ref_mut(cs), 1500.0);
                     // Set right pwm
@@ -83,7 +83,7 @@ pub async fn throttle_driver(
                             "THROTTLE_DRIVER<WARN>: Ignoring new left throttle value {new_throttle} as ESCs are not armed"
                         );
                     } else {
-                        dbg!(
+                        println!(
                             "THROTTLE_DRIVER<DEBUG>: Setting left throttle to {}",
                             new_throttle
                         );
@@ -99,7 +99,7 @@ pub async fn throttle_driver(
                             "THROTTLE_DRIVER<WARN>: Ignoring new left throttle value {new_throttle} as ESCs are not armed"
                         );
                     } else {
-                        dbg!(
+                        println!(
                             "THROTTLE_DRIVER<DEBUG>: Setting right throttle to {}",
                             new_throttle
                         );
@@ -114,7 +114,7 @@ pub async fn throttle_driver(
 
         // Wait three seconds for the escs to arm
         if matches!(received_throttle_command, ThrottleCommand::ArmESCs) {
-            dbg!("THROTTLE_DRIVER: ESCs set to idle, Allowing 3 seconds for ESCs to Arm themselves...");
+            println!("THROTTLE_DRIVER: ESCs set to idle, Allowing 3 seconds for ESCs to Arm themselves...");
             Timer::after(Duration::from_millis(3_000)).await;
             ESCS_ARMED.store(true, Ordering::SeqCst);
             println!("THROTTLE_DRIVER: ESCs Armed!");
