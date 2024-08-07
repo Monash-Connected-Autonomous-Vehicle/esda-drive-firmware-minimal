@@ -48,7 +48,7 @@ pub static THROTTLE_PWM_HANDLE_LEFT: Mutex<
 /// PWM Driver handle for left throttle
 pub static THROTTLE_PWM_HANDLE_RIGHT: Mutex<
     RefCell<
-        Option<PwmPin<'_, GpioPin<THROTTLE_PWM_PIN_RIGHT>, esp_hal::peripherals::MCPWM1, 0, true>>,
+        Option<PwmPin<'_, GpioPin<THROTTLE_PWM_PIN_RIGHT>, esp_hal::peripherals::MCPWM1, 1, true>>,
     >,
 > = Mutex::new(RefCell::new(None));
 
@@ -133,8 +133,10 @@ where
     T: PwmPinExtension,
 {
     if let Some(mut pwm_driver_handle) = pwm_driver_cellref.take() {
+        let duty = pos_width_to_duty(new_throttle);
+        println!("ESDA_THROTTLE: Setting pwm to {new_throttle} ({duty}%))");
         // Apply the throttle to the pwm output
-        pwm_driver_handle.set_timestamp(pos_width_to_duty(new_throttle));
+        pwm_driver_handle.set_timestamp(new_throttle as u16);
 
         // Return the pwm driver to the mutex
         pwm_driver_cellref.replace(pwm_driver_handle);

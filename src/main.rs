@@ -123,25 +123,24 @@ async fn main(spawner: Spawner) {
     let right_throttle_pin: GpioPin<{ esda_throttle::THROTTLE_PWM_PIN_RIGHT }> =
         GpioPin::<{ esda_throttle::THROTTLE_PWM_PIN_RIGHT }>;
     // Initialise pwm clock with esp32's primary XTAL clock frequency of 40MHz
-    let pwm_clock_cfg = PeripheralClockConfig::with_frequency(&clocks, 40.MHz()).unwrap();
+    let pwm_clock_cfg = PeripheralClockConfig::with_frequency(&clocks, 32.MHz()).unwrap();
     let mut mcpwm_left = McPwm::new(peripherals.MCPWM0, pwm_clock_cfg);
     let mut mcpwm_right = McPwm::new(peripherals.MCPWM1, pwm_clock_cfg);
     // Link operators to timers
     mcpwm_left.operator0.set_timer(&mcpwm_left.timer0);
-    mcpwm_right.operator0.set_timer(&mcpwm_right.timer0);
+    mcpwm_right.operator1.set_timer(&mcpwm_right.timer1);
     // Link operators to pins
     let throttle_driver_left = mcpwm_left
         .operator0
         .with_pin_a(left_throttle_pin, PwmPinConfig::UP_ACTIVE_HIGH);
     let throttle_driver_right = mcpwm_right
-        .operator0
+        .operator1
         .with_pin_a(right_throttle_pin, PwmPinConfig::UP_ACTIVE_HIGH);
     // Finish initialising pwm clocks, use 50kHz (i may be off by an order of magnitude)
     let pwm_timer_clock_config = pwm_clock_cfg
-        .timer_clock_with_frequency(99, PwmWorkingMode::Increase, 50.kHz())
-        .unwrap();
+        .timer_clock_with_prescaler(20000, PwmWorkingMode::Increase, 31);
     mcpwm_left.timer0.start(pwm_timer_clock_config);
-    mcpwm_right.timer0.start(pwm_timer_clock_config);
+    mcpwm_right.timer1.start(pwm_timer_clock_config);
 
     critical_section::with(|cs| {
         esda_throttle::THROTTLE_PWM_HANDLE_LEFT

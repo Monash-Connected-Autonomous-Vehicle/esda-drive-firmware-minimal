@@ -53,10 +53,11 @@ pub async fn wireless_receiver(
         }
 
         // Process all the messages in the packet
-        for message_index in 0..(received_packet.len as usize) / esda_interface::MESSAGE_SIZE {
-            match esda_interface::ESDAMessage::from_le_bytes(
-                &packet_data[0 + message_index..esda_interface::MESSAGE_SIZE + message_index],
-            ) {
+        // for message_index in 0..(received_packet.len as usize) / esda_interface::MESSAGE_SIZE {
+        //     match esda_interface::ESDAMessage::from_le_bytes(
+        //         &packet_data[0 + message_index..esda_interface::MESSAGE_SIZE + message_index],
+        //     ) {
+            match esda_interface::ESDAMessage::from_le_bytes(&packet_data[0..=7]) {
                 // If the message was valid
                 Ok(message) => {
                     match message.id {
@@ -69,6 +70,9 @@ pub async fn wireless_receiver(
                             println!("WIRELESS_RECEIVER<DEBUG>: Forwarding Received change to left throttle: {:?}", message);
                         },
                         esda_interface::ESDAMessageID::SetTargetVelRight => {
+                            let mut data: [u8; 8] = [0;8];
+                            data.copy_from_slice(&packet_data[0..=7]);
+                            println!("WIRELESS_RECEIVER: Received right throttle data {:?}\n{:b}", data, u64::from_le_bytes(data));
                             throttle_command_signal
                             .signal(esda_throttle::ThrottleCommand::SetThrottleRight {
                                 new_throttle: message.data,
@@ -97,6 +101,6 @@ pub async fn wireless_receiver(
                     data.copy_from_slice(&e[0..=7]);
                     println!("WIRELESS_RECEIVER: Received invalid data {:b}",  u64::from_le_bytes(data)) },
             }
-        }
+        // }
     }
 }
