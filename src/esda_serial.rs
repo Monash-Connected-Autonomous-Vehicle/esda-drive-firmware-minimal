@@ -2,14 +2,14 @@
 //
 // Authors: BMCG0011
 
-use core::cell::{RefCell};
+use core::{cell::RefCell, ffi::CStr, str};
 
 use critical_section::Mutex;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use esp_backtrace as _;
 use esp_hal::{
     peripherals::UART1,
-    uart::{UartRx, UartTx},
+    uart::{self, UartRx, UartTx},
     Async,
 };
 use esp_println::{dbg, println};
@@ -51,12 +51,18 @@ pub(crate) async fn speedo_serial_writer(
             id: esda_interface::ESDAMessageID::CurrentVelRight,
             data: right_vel,
         };
+
         println!("Left {:?}, Right: {:?}\r\n", left, right);
         let mut success = false;
         while !success {
             critical_section::with(|cs| {
                 if tx.borrow_ref(cs).is_some() {
-                    write!(tx.borrow_ref_mut(cs).as_mut().unwrap(), "{:?}\r\n", &left).unwrap();
+                    let mut tx = tx.borrow_ref_mut(cs);
+                    let tx = tx.as_mut().unwrap();
+                    tx.write_bytes(&left.to_le_bytes()).unwrap();
+                    write!(tx, "\r\n").unwrap();
+                    tx.write_bytes(&right.to_le_bytes()).unwrap();
+                    write!(tx, "\r\n").unwrap();
                     success = true;
                 }
             });
