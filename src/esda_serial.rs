@@ -19,19 +19,19 @@ use crate::{
     esda_throttle,
 };
 
-// rx_fifo_full_threshold
+// // rx_fifo_full_threshold
 pub(crate) const READ_BUF_SIZE: usize = 64;
-// EOT (CTRL-D)
+// // EOT (CTRL-D)
 pub(crate) const AT_CMD: u8 = 0x04;
 
 pub const TX_PIN: u8 = 2;
 pub const RX_PIN: u8 = 15;
 
-/// Globally accessible uart tx handle
+// /// Globally accessible uart tx handle
 pub static UART_TX: Mutex<RefCell<Option<UartTx<'static, UART1, Async>>>> = Mutex::new(RefCell::new(None));
 
-/// Writer task responsible for forwarding velocity data reported by the [speedometer](crate::esda_speedo::speedometer), to the ROS2 stack via UART
-/// TODO: handle serial forwarding from esp_now (put UartTx in a mutex and make a serial forwarder task)
+// /// Writer task responsible for forwarding velocity data reported by the [speedometer](crate::esda_speedo::speedometer), to the ROS2 stack via UART
+// /// TODO: handle serial forwarding from esp_now (put UartTx in a mutex and make a serial forwarder task)
 #[embassy_executor::task]
 pub(crate) async fn speedo_serial_writer(
     tx: &'static Mutex<RefCell<Option<UartTx<'static, UART1, Async>>>>,
@@ -107,6 +107,8 @@ pub(crate) async fn serial_reader(
         match read_result {
             // If we successfully read from the read buffer
             Ok(len) => {
+                // println!("Raw received data: {:?}", &read_buffer[..len]);
+
                 println!(
                     "SERIAL_READER<DEBUG>: Received ({len} bytes, data: {:?})",
                     &read_buffer[..offset]

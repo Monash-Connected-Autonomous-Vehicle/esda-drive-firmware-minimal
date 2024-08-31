@@ -20,7 +20,7 @@ pub enum ESDAMessageID {
 }
 
 /// The size of a single [ESDAMessage] in bytes
-pub const MESSAGE_SIZE: usize = 8;
+pub const MESSAGE_SIZE: usize = 10;
 
 /// Struct wrapper around the u32 used to denote the 'topic' being described by a control message
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -33,7 +33,7 @@ impl ESDAMessage {
     /// Converts a slice of little endian bytes to an ESDAMessage
     pub fn from_le_bytes(bytes: &[u8]) -> Result<Self, &[u8]> {
         // Return an error immediately if the slice is the wrong length
-        if bytes.len() != 8 {
+        if bytes.len() != MESSAGE_SIZE {
             return Err(bytes);
         }
 
