@@ -102,34 +102,31 @@ pub(crate) async fn serial_reader(
 
     let mut read_buffer: [u8; MAX_BUFFER_SIZE] = [0u8; MAX_BUFFER_SIZE];
     let mut offset = 0;
+
     loop {
         let read_result = embedded_io_async::Read::read(&mut rx, &mut read_buffer[offset..]).await;
         println!("SERIAL_READER<DEBUG>: Read Result: {:?}", read_result);
+
         match read_result {
-            // If we successfully read from the read buffer
             Ok(len) => {
-                // println!("Raw received data: {:?}", &read_buffer[..len]);
+                offset += len;
 
                 println!(
                     "SERIAL_READER<DEBUG>: Received ({len} bytes, data: {:?})",
                     &read_buffer[..offset]
                 );
-                // Loop over the messages
-                for message_offset in 0..len / esda_interface::MESSAGE_SIZE {
-                    // NOTE: Should be little endian :fingers_crossed_emoji:
-                    println!("THE INDIVIDUAL MESSAGES: {:?}", message_offset);
 
-                    match esda_interface::ESDAMessage::from_le_bytes(
-                        &read_buffer
-                            [0 + message_offset..esda_interface::MESSAGE_SIZE + message_offset],
-                    ) {
+                // Ensure you only process complete messages
+                let mut processed_bytes = 0;
+                while offset - processed_bytes >= esda_interface::MESSAGE_SIZE {
+                    let start = processed_bytes;
+                    let end = start + esda_interface::MESSAGE_SIZE;
 
-                        // If we got a valid message
+                    match esda_interface::ESDAMessage::from_le_bytes(&read_buffer[start..end]) {
                         Ok(message) => {
+                            println!("MESSAGE RECEIVED: {:?}", message.data);
                             match message.id {
-                                // Forward throttle commands to throttle driver via signalling channel
                                 esda_interface::ESDAMessageID::SetTargetVelLeft => {
-                                    println!("MESSAGE RECEIVED: {:?}", message.data); // added this for debugging purpose
                                     throttle_command_signal.signal(
                                         esda_throttle::ThrottleCommand::SetThrottleLeft {
                                             new_throttle: message.data as f32,
@@ -143,7 +140,6 @@ pub(crate) async fn serial_reader(
                                         },
                                     )
                                 }
-                                // If the E-Stop signal is received then pass the E-Stop signal to the throttle driver
                                 esda_interface::ESDAMessageID::ESTOP => {
                                     println!("SERIAL_READER: Received E-Stop Signal, idling ESCs and ignoring all further throttle commands!");
                                     throttle_command_signal
@@ -153,14 +149,22 @@ pub(crate) async fn serial_reader(
                             }
                         }
                         Err(invalid_data) => {
-                            println!("SERIAL_READER<ERROR>: Got invalid message {invalid_data:?}")
+                            println!(
+                                "SERIAL_READER<ERROR>: Got invalid message {invalid_data:?}"
+                            );
+                            break; // Stop processing if an invalid message is detected
                         }
                     }
+
+                    processed_bytes += esda_interface::MESSAGE_SIZE;
                 }
 
-                offset += len;
+                // Shift remaining unprocessed bytes to the start of the buffer
+                if processed_bytes > 0 {
+                    read_buffer.copy_within(processed_bytes..offset, 0);
+                    offset -= processed_bytes;
+                }
             }
-            // Otherwise log the error
             Err(e) => println!("SERIAL_READER<ERROR>: Serial RX Error: {:?}", e),
         }
     }
