@@ -13,6 +13,7 @@ use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 use esp_hal::{gpio::GpioPin, mcpwm::operator::PwmPin};
 use esp_println::{dbg, println};
+use esp_wifi::esp_now::ReceiveInfo;
 
 use crate::pwm_extension::PwmPinExtension;
 
@@ -63,7 +64,10 @@ pub async fn throttle_driver(
     loop {
         // Wait until we receive a command to change the throttle
         let received_throttle_command = throttle_command_signal.wait().await;
+        // println!("THROTTLE_DRIVER<DEBUG>: Received Throttle Command: {:?}", received_throttle_command);
         throttle_command_signal.reset();
+
+        
 
         critical_section::with(|cs| {
             // Process the command

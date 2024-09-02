@@ -45,11 +45,11 @@ pub(crate) async fn speedo_serial_writer(
 
         let left = esda_interface::ESDAMessage {
             id: esda_interface::ESDAMessageID::CurrentVelLeft,
-            data: left_vel,
+            data: left_vel as u32,
         };
         let right = esda_interface::ESDAMessage {
             id: esda_interface::ESDAMessageID::CurrentVelRight,
-            data: right_vel,
+            data: right_vel as u32,
         };
 
         println!("Left {:?}, Right: {:?}\r\n", left, right);
@@ -104,6 +104,7 @@ pub(crate) async fn serial_reader(
     let mut offset = 0;
     loop {
         let read_result = embedded_io_async::Read::read(&mut rx, &mut read_buffer[offset..]).await;
+        println!("SERIAL_READER<DEBUG>: Read Result: {:?}", read_result);
         match read_result {
             // If we successfully read from the read buffer
             Ok(len) => {
@@ -116,25 +117,29 @@ pub(crate) async fn serial_reader(
                 // Loop over the messages
                 for message_offset in 0..len / esda_interface::MESSAGE_SIZE {
                     // NOTE: Should be little endian :fingers_crossed_emoji:
+                    println!("THE INDIVIDUAL MESSAGES: {:?}", message_offset);
+
                     match esda_interface::ESDAMessage::from_le_bytes(
                         &read_buffer
                             [0 + message_offset..esda_interface::MESSAGE_SIZE + message_offset],
                     ) {
+
                         // If we got a valid message
                         Ok(message) => {
                             match message.id {
                                 // Forward throttle commands to throttle driver via signalling channel
                                 esda_interface::ESDAMessageID::SetTargetVelLeft => {
+                                    println!("MESSAGE RECEIVED: {:?}", message.data); // added this for debugging purpose
                                     throttle_command_signal.signal(
                                         esda_throttle::ThrottleCommand::SetThrottleLeft {
-                                            new_throttle: message.data,
+                                            new_throttle: message.data as f32,
                                         },
                                     )
                                 }
                                 esda_interface::ESDAMessageID::SetTargetVelRight => {
                                     throttle_command_signal.signal(
                                         esda_throttle::ThrottleCommand::SetThrottleRight {
-                                            new_throttle: message.data,
+                                            new_throttle: message.data as f32,
                                         },
                                     )
                                 }

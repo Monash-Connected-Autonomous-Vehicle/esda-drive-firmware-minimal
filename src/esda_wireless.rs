@@ -65,7 +65,7 @@ pub async fn wireless_receiver(
                         esda_interface::ESDAMessageID::SetTargetVelLeft => {
                             throttle_command_signal
                             .signal(esda_throttle::ThrottleCommand::SetThrottleLeft {
-                                new_throttle: message.data,
+                                new_throttle: message.data as f32,
                             });
                             println!("WIRELESS_RECEIVER<DEBUG>: Forwarding Received change to left throttle: {:?}", message);
                         },
@@ -75,7 +75,7 @@ pub async fn wireless_receiver(
                             println!("WIRELESS_RECEIVER: Received right throttle data {:?}\n{:b}", data, u64::from_le_bytes(data));
                             throttle_command_signal
                             .signal(esda_throttle::ThrottleCommand::SetThrottleRight {
-                                new_throttle: message.data,
+                                new_throttle: message.data as f32,
                             });
                             println!("WIRELESS_RECEIVER<DEBUG>: Forwarding Received change to right throttle: {:?}", message);
                         },
