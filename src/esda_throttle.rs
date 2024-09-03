@@ -34,8 +34,8 @@ pub const THROTTLE_PWM_FREQUENCY_KHZ: u32 = 50;
 pub const THROTTLE_PWM_MIN_POS_WIDTH_INCREMENT: f32 =
     1.0 / (THROTTLE_PWM_FREQUENCY_KHZ * 1000 * 100) as f32;
 
-pub const THROTTLE_PWM_PIN_LEFT: u8 = 26;
-pub const THROTTLE_PWM_PIN_RIGHT: u8 = 16;
+pub const THROTTLE_PWM_PIN_LEFT: u8 = 16;
+pub const THROTTLE_PWM_PIN_RIGHT: u8 = 26;
 
 /// Static value used to track ESC arm state
 pub static ESCS_ARMED: AtomicBool = AtomicBool::new(false);
