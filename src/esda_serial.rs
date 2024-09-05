@@ -127,14 +127,22 @@ pub(crate) async fn serial_reader(
                             println!("MESSAGE RECEIVED: {:?}", message.data);
                             println!("MESSAGE ID <DEBUG :{:?}", message.id);
                             match message.id {
+                                
                                 esda_interface::ESDAMessageID::SetTargetVelLeft => {
+                                    let new_throttle = message.data as f32; // Store the new throttle value
+                                    println!("Setting left throttle to: {}", new_throttle); // Print the new throttle value
                                     throttle_command_signal.signal(
                                         esda_throttle::ThrottleCommand::SetThrottleLeft {
                                             new_throttle: message.data as f32,
                                         },
+
+                                        
                                     )
+                                    
                                 }
                                 esda_interface::ESDAMessageID::SetTargetVelRight => {
+                                    let new_throttle = message.data as f32; // Store the new throttle value
+                                    println!("Setting left throttle to: {}", new_throttle); // Print the new throttle value
                                     throttle_command_signal.signal(
                                         esda_throttle::ThrottleCommand::SetThrottleRight {
                                             new_throttle: message.data as f32,
