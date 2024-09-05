@@ -125,6 +125,7 @@ pub(crate) async fn serial_reader(
                     match esda_interface::ESDAMessage::from_le_bytes(&read_buffer[start..end]) {
                         Ok(message) => {
                             println!("MESSAGE RECEIVED: {:?}", message.data);
+                            println!("MESSAGE ID <DEBUG :{:?}", message.id);
                             match message.id {
                                 esda_interface::ESDAMessageID::SetTargetVelLeft => {
                                     throttle_command_signal.signal(

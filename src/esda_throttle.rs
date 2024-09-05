@@ -100,7 +100,7 @@ pub async fn throttle_driver(
                 ThrottleCommand::SetThrottleRight { new_throttle } => {
                     if !ESCS_ARMED.load(Ordering::SeqCst) {
                         println!(
-                            "THROTTLE_DRIVER<WARN>: Ignoring new left throttle value {new_throttle} as ESCs are not armed"
+                            "THROTTLE_DRIVER<WARN>: Ignoring new right throttle value {new_throttle} as ESCs are not armed"
                         );
                     } else {
                         println!(
