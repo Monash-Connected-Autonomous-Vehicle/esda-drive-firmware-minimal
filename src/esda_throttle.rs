@@ -61,7 +61,7 @@ pub async fn throttle_driver(
     throttle_command_channel: &'static Channel<NoopRawMutex, ThrottleCommand, {COMMAND_BUFFER_SIZE}>,
 ) {
     // Start by sending ourselves a signal to arm the escs
-    throttle_command_channel.send(ThrottleCommand::ArmESCs);
+    throttle_command_channel.send(ThrottleCommand::ArmESCs).await;
 
     loop {
         // Wait until we receive a command to change the throttle
