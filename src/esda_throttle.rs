@@ -9,13 +9,15 @@ use core::{
 
 use critical_section::Mutex;
 use embassy_executor::task;
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
+use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, signal::Signal};
 use embassy_time::{Duration, Timer};
 use esp_hal::{gpio::GpioPin, mcpwm::operator::PwmPin};
 use esp_println::{dbg, println};
 use esp_wifi::esp_now::ReceiveInfo;
 
 use crate::pwm_extension::PwmPinExtension;
+
+pub const COMMAND_BUFFER_SIZE: usize = 4;
 
 /// Utility enum used by tasks to [Signal](embassy_sync::signal::Signal) commands to the [throttle_driver](crate::esda_throttle::throttle_driver) task
 pub enum ThrottleCommand {
@@ -56,18 +58,15 @@ pub static THROTTLE_PWM_HANDLE_RIGHT: Mutex<
 /// Driver task responsible for enacting [ThrottleCommands](crate::esda_throttle::ThrottleCommand) (e.g. set throttle on side, arming/disarming the escs) per signals from other tasks (i.e. [serial_reader](crate::esda_serial::serial_reader), [wireless_receiver](crate::esda_wireless::wireless_receiver))
 #[task]
 pub async fn throttle_driver(
-    throttle_command_signal: &'static Signal<NoopRawMutex, ThrottleCommand>,
+    throttle_command_channel: &'static Channel<NoopRawMutex, ThrottleCommand, {COMMAND_BUFFER_SIZE}>,
 ) {
     // Start by sending ourselves a signal to arm the escs
-    throttle_command_signal.signal(ThrottleCommand::ArmESCs);
+    throttle_command_channel.send(ThrottleCommand::ArmESCs);
 
     loop {
         // Wait until we receive a command to change the throttle
-        let received_throttle_command = throttle_command_signal.wait().await;
+        let received_throttle_command = throttle_command_channel.receive().await;
         // println!("THROTTLE_DRIVER<DEBUG>: Received Throttle Command: {:?}", received_throttle_command);
-        throttle_command_signal.reset();
-
-        
 
         critical_section::with(|cs| {
             // Process the command

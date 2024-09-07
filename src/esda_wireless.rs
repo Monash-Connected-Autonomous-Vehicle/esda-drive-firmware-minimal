@@ -2,7 +2,7 @@
 //
 // Authors: BMCG0011, Samuel Tri
 use embassy_executor::task;
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
+use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, signal::Signal};
 use esp_println::{dbg, println};
 use esp_wifi::esp_now::{EspNow, PeerInfo, BROADCAST_ADDRESS};
 
@@ -13,7 +13,7 @@ use crate::{esda_interface, esda_throttle};
 #[task]
 pub async fn wireless_receiver(
     mut esp_now: EspNow<'static>,
-    throttle_command_signal: &'static Signal<NoopRawMutex, esda_throttle::ThrottleCommand>,
+    throttle_command_channel: &'static Channel<NoopRawMutex, esda_throttle::ThrottleCommand, {esda_throttle::COMMAND_BUFFER_SIZE}>,
     serial_forwarding_signal: &'static Signal<NoopRawMutex, esda_interface::ESDAMessage>,
 ) {
     loop {
@@ -63,8 +63,8 @@ pub async fn wireless_receiver(
                     match message.id {
                         // Forward throttle commands to throttle driver via signalling channel
                         esda_interface::ESDAMessageID::SetTargetVelLeft => {
-                            throttle_command_signal
-                            .signal(esda_throttle::ThrottleCommand::SetThrottleLeft {
+                            throttle_command_channel
+                            .send(esda_throttle::ThrottleCommand::SetThrottleLeft {
                                 new_throttle: message.data as f32,
                             });
                             println!("WIRELESS_RECEIVER<DEBUG>: Forwarding Received change to left throttle: {:?}", message);
@@ -73,8 +73,8 @@ pub async fn wireless_receiver(
                             let mut data: [u8; 8] = [0;8];
                             data.copy_from_slice(&packet_data[0..=7]);
                             println!("WIRELESS_RECEIVER: Received right throttle data {:?}\n{:b}", data, u64::from_le_bytes(data));
-                            throttle_command_signal
-                            .signal(esda_throttle::ThrottleCommand::SetThrottleRight {
+                            throttle_command_channel
+                            .send(esda_throttle::ThrottleCommand::SetThrottleRight {
                                 new_throttle: message.data as f32,
                             });
                             println!("WIRELESS_RECEIVER<DEBUG>: Forwarding Received change to right throttle: {:?}", message);
@@ -90,8 +90,8 @@ pub async fn wireless_receiver(
                         },
                         esda_interface::ESDAMessageID::ESTOP => {
                             println!("WIRELESS_RECEIVER: Received E-Stop Signal, idling ESCs and ignoring all further throttle commands!");
-                            throttle_command_signal
-                                .signal(esda_throttle::ThrottleCommand::EngageEStop)
+                            throttle_command_channel
+                                .send(esda_throttle::ThrottleCommand::EngageEStop).await
                         },
                         esda_interface::ESDAMessageID::SetAutonomousMode => {},
                         _ => {},

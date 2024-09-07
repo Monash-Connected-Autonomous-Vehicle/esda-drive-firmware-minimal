@@ -7,7 +7,7 @@
 #![allow(dead_code)]
 
 use embassy_executor::Spawner;
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
+use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, signal::Signal};
 use embassy_time::Timer;
 use esp_backtrace as _;
 use esp_hal::{
@@ -151,15 +151,15 @@ async fn main(spawner: Spawner) {
             .replace(throttle_driver_right);
     });
 
-    // Initialise signal channel for throttle updates
-    static THROTTLE_COMMAND_SIGNAL: StaticCell<
-        Signal<NoopRawMutex, esda_throttle::ThrottleCommand>,
+    // Initialise channel for throttle updates
+    static THROTTLE_COMMAND_CHANNEL: StaticCell<
+        Channel<NoopRawMutex, esda_throttle::ThrottleCommand, {esda_throttle::COMMAND_BUFFER_SIZE}>,
     > = StaticCell::new();
-    let throttle_command_signal = &*THROTTLE_COMMAND_SIGNAL.init(Signal::new());
+    let throttle_command_channel: &Channel<NoopRawMutex, esda_throttle::ThrottleCommand, {esda_throttle::COMMAND_BUFFER_SIZE}> = &*THROTTLE_COMMAND_CHANNEL.init(Channel::new());
 
     // Spawn throttle driver task
     spawner
-        .spawn(esda_throttle::throttle_driver(&throttle_command_signal))
+        .spawn(esda_throttle::throttle_driver(&throttle_command_channel))
         .unwrap();
 
     println!("MAIN<DEBUG>: THROTTLE_DRIVER Init complete!");
@@ -199,7 +199,7 @@ async fn main(spawner: Spawner) {
 
     println!("MAIN<DEBUG>: Spawning UART TX/RX Tasks...");
     spawner
-        .spawn(esda_serial::serial_reader(rx, &throttle_command_signal))
+        .spawn(esda_serial::serial_reader(rx, &throttle_command_channel))
         .ok();
     spawner
         .spawn(esda_serial::speedo_serial_writer(
@@ -242,7 +242,7 @@ async fn main(spawner: Spawner) {
     spawner
         .spawn(esda_wireless::wireless_receiver(
             esp_now,
-            &throttle_command_signal,
+            &throttle_command_channel,
             &serial_forwarding_signal,
         ))
         .unwrap();

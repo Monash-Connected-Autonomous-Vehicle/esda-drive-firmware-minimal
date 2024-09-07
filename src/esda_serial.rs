@@ -5,7 +5,7 @@
 use core::{cell::RefCell, ffi::CStr, str};
 
 use critical_section::Mutex;
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
+use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, signal::Signal};
 use esp_backtrace as _;
 use esp_hal::{
     peripherals::UART1,
@@ -96,7 +96,7 @@ pub(crate) async fn serial_forwarding_writer(
 #[embassy_executor::task]
 pub(crate) async fn serial_reader(
     mut rx: UartRx<'static, UART1, Async>,
-    throttle_command_signal: &'static Signal<NoopRawMutex, esda_throttle::ThrottleCommand>,
+    throttle_command_channel: &'static Channel<NoopRawMutex, esda_throttle::ThrottleCommand, {esda_throttle::COMMAND_BUFFER_SIZE}>,
 ) {
     const MAX_BUFFER_SIZE: usize = 10 * READ_BUF_SIZE + 16;
 
@@ -131,28 +131,25 @@ pub(crate) async fn serial_reader(
                                 esda_interface::ESDAMessageID::SetTargetVelLeft => {
                                     let new_throttle = message.data as f32; // Store the new throttle value
                                     println!("Setting left throttle to: {}", new_throttle); // Print the new throttle value
-                                    throttle_command_signal.signal(
+                                    throttle_command_channel.send(
                                         esda_throttle::ThrottleCommand::SetThrottleLeft {
                                             new_throttle: message.data as f32,
                                         },
-
-                                        
-                                    )
-                                    
+                                    ).await
                                 }
                                 esda_interface::ESDAMessageID::SetTargetVelRight => {
                                     let new_throttle = message.data as f32; // Store the new throttle value
                                     println!("Setting right throttle to: {}", new_throttle); // Print the new throttle value
-                                    throttle_command_signal.signal(
+                                    throttle_command_channel.send(
                                         esda_throttle::ThrottleCommand::SetThrottleRight {
                                             new_throttle: message.data as f32,
                                         },
-                                    )
+                                    ).await
                                 }
                                 esda_interface::ESDAMessageID::ESTOP => {
                                     println!("SERIAL_READER: Received E-Stop Signal, idling ESCs and ignoring all further throttle commands!");
-                                    throttle_command_signal
-                                        .signal(esda_throttle::ThrottleCommand::EngageEStop)
+                                    throttle_command_channel
+                                        .send(esda_throttle::ThrottleCommand::EngageEStop).await
                                 }
                                 _ => {}
                             }
