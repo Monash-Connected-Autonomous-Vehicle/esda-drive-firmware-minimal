@@ -27,6 +27,9 @@ pub(crate) const AT_CMD: u8 = 0x04;
 pub const TX_PIN: u8 = 2;
 pub const RX_PIN: u8 = 15;
 
+// Buffer size for serial forwarding channel
+pub const SERIAL_FORWARDING_BUFFER_SIZE: usize = 4;
+
 // /// Globally accessible uart tx handle
 pub static UART_TX: Mutex<RefCell<Option<UartTx<'static, UART1, Async>>>> = Mutex::new(RefCell::new(None));
 
@@ -74,12 +77,12 @@ pub(crate) async fn speedo_serial_writer(
 #[embassy_executor::task]
 pub(crate) async fn serial_forwarding_writer(
     tx: &'static Mutex<RefCell<Option<UartTx<'static, UART1, Async>>>>,
-    serial_forwarding_signal: &'static Signal<NoopRawMutex, esda_interface::ESDAMessage>,
+    serial_forwarding_signal: &'static Channel<NoopRawMutex, esda_interface::ESDAMessage, {SERIAL_FORWARDING_BUFFER_SIZE}>,
 ) {
     use core::fmt::Write;
     loop {
         // Wait for us to be forwarded an ESDAMessage from the serial reader
-        let message = serial_forwarding_signal.wait().await;
+        let message = serial_forwarding_signal.receive().await;
         let mut success = false;
         while !success {
             critical_section::with(|cs| {

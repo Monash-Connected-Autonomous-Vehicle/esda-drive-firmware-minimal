@@ -11,11 +11,11 @@ use critical_section::Mutex;
 use embassy_executor::task;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, signal::Signal};
 use embassy_time::{Duration, Timer};
-use esp_hal::{gpio::GpioPin, mcpwm::operator::PwmPin};
+use esp_hal::{gpio::{GpioPin, Input, InputPin}, mcpwm::operator::PwmPin};
 use esp_println::{dbg, println};
 use esp_wifi::esp_now::ReceiveInfo;
 
-use crate::pwm_extension::PwmPinExtension;
+use crate::{esda_interface, esda_serial, pwm_extension::PwmPinExtension};
 
 pub const COMMAND_BUFFER_SIZE: usize = 4;
 
@@ -150,5 +150,22 @@ where
     // - the pwm code has not even been initialised yet (this task is started after that happens)
     else {
         println!("THROTTLE_DRIVER(SET_PWM_MICROSECONDS)<ERROR>: Failed to set throttle - pwm handle is uninitialised or has been taken by another task");
+    }
+}
+
+#[task]
+/// Task responsible for waiting for an ESTOP press, notifying the ROS2 stack and telling the throttle task to stop the motors.
+pub async fn estop_button_handler(
+    mut estop_button_pin: Input<'static, impl InputPin>, 
+    throttle_command_channel: &'static Channel<NoopRawMutex, ThrottleCommand, {COMMAND_BUFFER_SIZE}>, 
+    serial_forwarding_channel: &'static Channel<NoopRawMutex, esda_interface::ESDAMessage, {esda_serial::SERIAL_FORWARDING_BUFFER_SIZE}>,) {
+    loop {
+        // Wait for the estop to be pressed
+        estop_button_pin.wait_for_falling_edge().await;
+        println!("ESTOP_BUTTON_HANDLER: ESTOP BUTTON PRESSED, ENGAGING ESTOP!");
+        // Engage the E-Stop
+        throttle_command_channel.send(ThrottleCommand::EngageEStop).await;
+        // Forward the E-Stop signal over serial to the ROS2 stack
+        serial_forwarding_channel.send(esda_interface::ESDAMessage { id: esda_interface::ESDAMessageID::ESTOP, data: 1 }).await;
     }
 }

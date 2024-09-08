@@ -166,9 +166,9 @@ async fn main(spawner: Spawner) {
 
     println!("MAIN: Initialising UART Connection to ROS2 Stack...");
     // Initialise signal channel for forwarding espnow messages to serial
-    static SERIAL_FORWARDING_SIGNAL: StaticCell<Signal<NoopRawMutex, esda_interface::ESDAMessage>> =
+    static SERIAL_FORWARDING_CHANNEL: StaticCell<Channel<NoopRawMutex, esda_interface::ESDAMessage, {esda_serial::SERIAL_FORWARDING_BUFFER_SIZE}>> =
         StaticCell::new();
-    let serial_forwarding_signal = &*SERIAL_FORWARDING_SIGNAL.init(Signal::new());
+    let serial_forwarding_channel = &*SERIAL_FORWARDING_CHANNEL.init(Channel::new());
 
     // Define pins for UART connection in IO MUX (Pins 1 and 3 are Standard)
     let (tx_pin, rx_pin) = (io.pins.gpio2, io.pins.gpio15);
@@ -210,10 +210,16 @@ async fn main(spawner: Spawner) {
     spawner
         .spawn(esda_serial::serial_forwarding_writer(
             &esda_serial::UART_TX,
-            &serial_forwarding_signal,
+            &serial_forwarding_channel,
         ))
         .ok();
-    println!("MAIN<DBG>: Finished UART Initialisation!");
+    println!("MAIN<DEBUG>: Finished UART Initialisation!");
+
+    println!("MAIN: Initialising ESTOP");
+    let estop_pin = io.pins.gpio22;
+    let estop_pin = Input::new(estop_pin, Pull::Up);
+    spawner.spawn(esda_throttle::estop_button_handler(estop_pin, throttle_command_channel, serial_forwarding_channel)).unwrap();
+    println!("MAIN<DEBUG>: Finished Initialising ESTOP");
 
     println!("MAIN: Starting esp-now Initialisation");
     let timer = PeriodicTimer::new(
@@ -243,7 +249,7 @@ async fn main(spawner: Spawner) {
         .spawn(esda_wireless::wireless_receiver(
             esp_now,
             &throttle_command_channel,
-            &serial_forwarding_signal,
+            &serial_forwarding_channel,
         ))
         .unwrap();
     println!("MAIN<DBG>: Finished UART Initialisation!");
