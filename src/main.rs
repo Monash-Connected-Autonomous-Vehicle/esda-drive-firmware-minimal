@@ -121,7 +121,7 @@ async fn main(spawner: Spawner) {
     println!("Encoders Initialised...");
 
     println!("MAIN: Initialising Safety Light");
-    let safety_light_pwm_clock_cfg = PeripheralClockConfig::with_frequency(&clocks, 20.kHz()).unwrap();
+    let safety_light_pwm_clock_cfg = PeripheralClockConfig::with_frequency(&clocks, 32.MHz()).unwrap();
     // Set up PWM driver for safety light
     let mut safety_light_mcpwm = McPwm::new(peripherals.MCPWM1, safety_light_pwm_clock_cfg);
     let safety_light_pin: GpioPin<{ esda_safety_light::SAFETY_LIGHT_PIN }> =
@@ -132,7 +132,7 @@ async fn main(spawner: Spawner) {
     let safety_light_driver = safety_light_mcpwm.operator2.with_pin_a(safety_light_pin, PwmPinConfig::UP_ACTIVE_HIGH);
     // Configure timer
     // With this clock configuration the period equates to the period in miliseconds
-    let safety_light_pwm_clock_config = safety_light_pwm_clock_cfg.timer_clock_with_prescaler(500, PwmWorkingMode::Increase, 79);
+    let safety_light_pwm_clock_config = safety_light_pwm_clock_cfg.timer_clock_with_prescaler(20000, PwmWorkingMode::Increase, 31);
     // Start the pwm driver with the given clock configuration
     safety_light_mcpwm.timer2.start(safety_light_pwm_clock_config);
 
