@@ -72,8 +72,15 @@ pub async fn throttle_driver(
             // Process the command
             match received_throttle_command {
                 // Set the escs to neutral for 3 seconds
-                ThrottleCommand::ArmESCs | ThrottleCommand::EngageEStop => {
+                ThrottleCommand::ArmESCs => {
                     println!("THROTTLE_DRIVER<DEBUG>: Arming ESCs...");
+                    // Set left pwm to neutral
+                    set_pwm_microseconds(THROTTLE_PWM_HANDLE_LEFT.borrow_ref_mut(cs), 1500.0);
+                    // Set right pwm to neutral
+                    set_pwm_microseconds(THROTTLE_PWM_HANDLE_RIGHT.borrow_ref_mut(cs), 1500.0);
+                },
+                ThrottleCommand::EngageEStop => {
+                    println!("THROTTLE_DRIVER: ESTOP SIGNAL RECEIVED - IDLING ESCS AND IGNORING ALL FURTHER THROTTLE INSTRUCTIONS!");
                     // Set left pwm to neutral
                     set_pwm_microseconds(THROTTLE_PWM_HANDLE_LEFT.borrow_ref_mut(cs), 1500.0);
                     // Set right pwm to neutral
