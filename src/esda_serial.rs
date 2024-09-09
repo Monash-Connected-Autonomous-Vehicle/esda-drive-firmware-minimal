@@ -2,21 +2,20 @@
 //
 // Authors: BMCG0011
 
-use core::{cell::RefCell, ffi::CStr, str};
+use core::cell::RefCell;
 
 use critical_section::Mutex;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, signal::Signal};
 use esp_backtrace as _;
 use esp_hal::{
     peripherals::UART1,
-    uart::{self, UartRx, UartTx},
+    uart::{UartRx, UartTx},
     Async,
 };
-use esp_println::{dbg, println};
+use esp_println::println;
 
 use crate::{
-    esda_interface::{self},
-    esda_throttle,
+    esda_interface::{self}, esda_safety_light, esda_throttle
 };
 
 // // rx_fifo_full_threshold
@@ -100,6 +99,7 @@ pub(crate) async fn serial_forwarding_writer(
 pub(crate) async fn serial_reader(
     mut rx: UartRx<'static, UART1, Async>,
     throttle_command_channel: &'static Channel<NoopRawMutex, esda_throttle::ThrottleCommand, {esda_throttle::COMMAND_BUFFER_SIZE}>,
+    safety_light_mode_signal: &'static Signal<NoopRawMutex, esda_safety_light::SafetyLightMode>
 ) {
     const MAX_BUFFER_SIZE: usize = 10 * READ_BUF_SIZE + 16;
 
@@ -153,6 +153,22 @@ pub(crate) async fn serial_reader(
                                     println!("SERIAL_READER: Received E-Stop Signal, idling ESCs and ignoring all further throttle commands!");
                                     throttle_command_channel
                                         .send(esda_throttle::ThrottleCommand::EngageEStop).await
+                                },
+                                esda_interface::ESDAMessageID::SetAutonomousMode => {
+                                    match message.data {
+                                        0 => {
+                                            println!("WIRELESS_RECEIVER: Recieved signal to disengage autonomous mode!");
+                                            // Turn safety light to solid
+                                            safety_light_mode_signal.signal(esda_safety_light::SafetyLightMode::On);
+                                        },
+                                        1 => {
+                                            println!("WIRELESS_RECEIVER: Recieved signal to engage autonomous mode!");
+                                            safety_light_mode_signal.signal(esda_safety_light::SafetyLightMode::Blink);
+                                        },
+                                        _ => {
+                                            println!("WIRELESS_RECEIVER<WARN>: Recieved change to autonomous mode but the value is neither 0 nor 1");
+                                        }
+                                    }
                                 }
                                 _ => {}
                             }

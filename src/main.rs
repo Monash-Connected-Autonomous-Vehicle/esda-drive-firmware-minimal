@@ -21,12 +21,15 @@ use esp_hal::{
     timer::{timg::TimerGroup, ErasedTimer, OneShotTimer, PeriodicTimer},
     uart::{self, config::AtCmdConfig},
 };
-use esp_println::{dbg, println};
+use esp_println::println;
 use esp_wifi::{initialize, EspWifiInitFor};
 use static_cell::StaticCell;
 
 /// Module containing interface types for communicating with controller (via esp-now) and the computer (via serial)
 mod esda_interface;
+
+/// Module containing the safety light implementation
+mod esda_safety_light;
 
 /// Module containing extension trait allowing for functions to accept pin-agnostic InputPin handles
 mod pwm_extension;
@@ -117,6 +120,38 @@ async fn main(spawner: Spawner) {
         .ok();
     println!("Encoders Initialised...");
 
+    println!("MAIN: Initialising Safety Light");
+    let safety_light_pwm_clock_cfg = PeripheralClockConfig::with_frequency(&clocks, 20.kHz()).unwrap();
+    // Set up PWM driver for safety light
+    let mut safety_light_mcpwm = McPwm::new(peripherals.MCPWM1, safety_light_pwm_clock_cfg);
+    let safety_light_pin: GpioPin<{ esda_safety_light::SAFETY_LIGHT_PIN }> =
+        GpioPin::<{ esda_safety_light::SAFETY_LIGHT_PIN }>;
+    // Link operator for safety light
+    safety_light_mcpwm.operator2.set_timer(&safety_light_mcpwm.timer2);
+    // Initialise Driver Handle
+    let safety_light_driver = safety_light_mcpwm.operator2.with_pin_a(safety_light_pin, PwmPinConfig::UP_ACTIVE_HIGH);
+    // Configure timer
+    // With this clock configuration the period equates to the period in miliseconds
+    let safety_light_pwm_clock_config = safety_light_pwm_clock_cfg.timer_clock_with_prescaler(500, PwmWorkingMode::Increase, 79);
+    // Start the pwm driver with the given clock configuration
+    safety_light_mcpwm.timer2.start(safety_light_pwm_clock_config);
+
+    // Store handle to the safety light driver in a mutex
+    critical_section::with(|cs| {
+        esda_safety_light::SAFETY_LIGHT_PWM_HANDLE
+            .borrow_ref_mut(cs)
+            .replace(safety_light_driver);
+    });
+
+    // Signal for setting mode of safety light from other tasks
+    static SAFETY_LIGHT_SIGNAL: StaticCell<Signal<NoopRawMutex, esda_safety_light::SafetyLightMode>> =
+    StaticCell::new();
+    let safety_light_signal = &*SAFETY_LIGHT_SIGNAL.init(Signal::new());
+
+    // Spawn the safety light task
+    spawner.spawn(esda_safety_light::safety_light_handler(safety_light_signal)).unwrap();
+    println!("MAIN<DEBUG>: Finished Initialising Safety Light!");
+
     println!("MAIN: Initialising throttle_driver...");
     let left_throttle_pin: GpioPin<{ esda_throttle::THROTTLE_PWM_PIN_LEFT }> =
         GpioPin::<{ esda_throttle::THROTTLE_PWM_PIN_LEFT }>;
@@ -124,23 +159,22 @@ async fn main(spawner: Spawner) {
         GpioPin::<{ esda_throttle::THROTTLE_PWM_PIN_RIGHT }>;
     // Initialise pwm clock with esp32's primary XTAL clock frequency of 40MHz
     let pwm_clock_cfg = PeripheralClockConfig::with_frequency(&clocks, 32.MHz()).unwrap();
-    let mut mcpwm_left = McPwm::new(peripherals.MCPWM0, pwm_clock_cfg);
-    let mut mcpwm_right = McPwm::new(peripherals.MCPWM1, pwm_clock_cfg);
+    let mut throttle_mcpwm = McPwm::new(peripherals.MCPWM0, pwm_clock_cfg);
     // Link operators to timers
-    mcpwm_left.operator0.set_timer(&mcpwm_left.timer0);
-    mcpwm_right.operator1.set_timer(&mcpwm_right.timer1);
+    throttle_mcpwm.operator0.set_timer(&throttle_mcpwm.timer0);
+    throttle_mcpwm.operator1.set_timer(&throttle_mcpwm.timer1);
     // Link operators to pins
-    let throttle_driver_left = mcpwm_left
+    let throttle_driver_left = throttle_mcpwm
         .operator0
         .with_pin_a(left_throttle_pin, PwmPinConfig::UP_ACTIVE_HIGH);
-    let throttle_driver_right = mcpwm_right
+    let throttle_driver_right = throttle_mcpwm
         .operator1
         .with_pin_a(right_throttle_pin, PwmPinConfig::UP_ACTIVE_HIGH);
     // Finish initialising pwm clocks, use 50kHz (i may be off by an order of magnitude)
     let pwm_timer_clock_config = pwm_clock_cfg
         .timer_clock_with_prescaler(20000, PwmWorkingMode::Increase, 31);
-    mcpwm_left.timer0.start(pwm_timer_clock_config);
-    mcpwm_right.timer1.start(pwm_timer_clock_config);
+    throttle_mcpwm.timer0.start(pwm_timer_clock_config);
+    throttle_mcpwm.timer1.start(pwm_timer_clock_config);
 
     critical_section::with(|cs| {
         esda_throttle::THROTTLE_PWM_HANDLE_LEFT
@@ -159,7 +193,7 @@ async fn main(spawner: Spawner) {
 
     // Spawn throttle driver task
     spawner
-        .spawn(esda_throttle::throttle_driver(&throttle_command_channel))
+        .spawn(esda_throttle::throttle_driver(&throttle_command_channel, &safety_light_signal))
         .unwrap();
 
     println!("MAIN<DEBUG>: THROTTLE_DRIVER Init complete!");
@@ -199,7 +233,7 @@ async fn main(spawner: Spawner) {
 
     println!("MAIN<DEBUG>: Spawning UART TX/RX Tasks...");
     spawner
-        .spawn(esda_serial::serial_reader(rx, &throttle_command_channel))
+        .spawn(esda_serial::serial_reader(rx, &throttle_command_channel, &safety_light_signal))
         .ok();
     spawner
         .spawn(esda_serial::speedo_serial_writer(
@@ -250,6 +284,7 @@ async fn main(spawner: Spawner) {
             esp_now,
             &throttle_command_channel,
             &serial_forwarding_channel,
+            &safety_light_signal
         ))
         .unwrap();
     println!("MAIN<DBG>: Finished UART Initialisation!");

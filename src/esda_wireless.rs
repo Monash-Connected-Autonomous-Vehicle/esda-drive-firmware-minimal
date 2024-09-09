@@ -3,10 +3,10 @@
 // Authors: BMCG0011, Samuel Tri
 use embassy_executor::task;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, signal::Signal};
-use esp_println::{dbg, println};
+use esp_println::println;
 use esp_wifi::esp_now::{EspNow, PeerInfo, BROADCAST_ADDRESS};
 
-use crate::{esda_interface, esda_serial, esda_throttle};
+use crate::{esda_interface, esda_safety_light, esda_serial, esda_throttle};
 
 /// Receiver task responsible for decoding and handling [ESDAMessages](crate::esda_interface::ESDAMessage) sent from the handheld controller over ESP-Now,
 /// It is also responsible for manipulating and propagating them as need be and propagating them to the relevant tasks through the appropriate [Signals](embassy_sync::signal::Signal) and/or [Channels](embassy_sync::channel::Channel)
@@ -15,6 +15,7 @@ pub async fn wireless_receiver(
     mut esp_now: EspNow<'static>,
     throttle_command_channel: &'static Channel<NoopRawMutex, esda_throttle::ThrottleCommand, {esda_throttle::COMMAND_BUFFER_SIZE}>,
     serial_forwarding_signal: &'static Channel<NoopRawMutex, esda_interface::ESDAMessage, {esda_serial::SERIAL_FORWARDING_BUFFER_SIZE}>,
+    safety_light_mode_signal: &'static Signal<NoopRawMutex, esda_safety_light::SafetyLightMode>
 ) {
     loop {
         // Wait until we receive an espnow packet
@@ -93,7 +94,22 @@ pub async fn wireless_receiver(
                             throttle_command_channel
                                 .send(esda_throttle::ThrottleCommand::EngageEStop).await
                         },
-                        esda_interface::ESDAMessageID::SetAutonomousMode => {},
+                        esda_interface::ESDAMessageID::SetAutonomousMode => {
+                            match message.data {
+                                0 => {
+                                    println!("WIRELESS_RECEIVER: Recieved signal to disengage autonomous mode!");
+                                    // Turn safety light to solid
+                                    safety_light_mode_signal.signal(esda_safety_light::SafetyLightMode::On);
+                                },
+                                1 => {
+                                    println!("WIRELESS_RECEIVER: Recieved signal to engage autonomous mode!");
+                                    safety_light_mode_signal.signal(esda_safety_light::SafetyLightMode::Blink);
+                                },
+                                _ => {
+                                    println!("WIRELESS_RECEIVER<WARN>: Recieved change to autonomous mode but the value is neither 0 nor 1");
+                                }
+                            }
+                        },
                         _ => {},
                     }
                 }

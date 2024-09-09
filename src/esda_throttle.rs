@@ -12,10 +12,9 @@ use embassy_executor::task;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, signal::Signal};
 use embassy_time::{Duration, Timer};
 use esp_hal::{gpio::{GpioPin, Input, InputPin}, mcpwm::operator::PwmPin};
-use esp_println::{dbg, println};
-use esp_wifi::esp_now::ReceiveInfo;
+use esp_println::println;
 
-use crate::{esda_interface, esda_serial, pwm_extension::PwmPinExtension};
+use crate::{esda_interface, esda_safety_light, esda_serial, pwm_extension::PwmPinExtension};
 
 pub const COMMAND_BUFFER_SIZE: usize = 4;
 
@@ -51,7 +50,7 @@ pub static THROTTLE_PWM_HANDLE_LEFT: Mutex<
 /// PWM Driver handle for left throttle
 pub static THROTTLE_PWM_HANDLE_RIGHT: Mutex<
     RefCell<
-        Option<PwmPin<'_, GpioPin<THROTTLE_PWM_PIN_RIGHT>, esp_hal::peripherals::MCPWM1, 1, true>>,
+        Option<PwmPin<'_, GpioPin<THROTTLE_PWM_PIN_RIGHT>, esp_hal::peripherals::MCPWM0, 1, true>>,
     >,
 > = Mutex::new(RefCell::new(None));
 
@@ -59,6 +58,7 @@ pub static THROTTLE_PWM_HANDLE_RIGHT: Mutex<
 #[task]
 pub async fn throttle_driver(
     throttle_command_channel: &'static Channel<NoopRawMutex, ThrottleCommand, {COMMAND_BUFFER_SIZE}>,
+    safety_light_mode_signal: &'static Signal<NoopRawMutex, esda_safety_light::SafetyLightMode>
 ) {
     // Start by sending ourselves a signal to arm the escs
     throttle_command_channel.send(ThrottleCommand::ArmESCs).await;
@@ -74,10 +74,16 @@ pub async fn throttle_driver(
                 // Set the escs to neutral for 3 seconds
                 ThrottleCommand::ArmESCs | ThrottleCommand::EngageEStop => {
                     println!("THROTTLE_DRIVER<DEBUG>: Arming ESCs...");
-                    // Set left pwm
+                    // Set left pwm to neutral
                     set_pwm_microseconds(THROTTLE_PWM_HANDLE_LEFT.borrow_ref_mut(cs), 1500.0);
-                    // Set right pwm
+                    // Set right pwm to neutral
                     set_pwm_microseconds(THROTTLE_PWM_HANDLE_RIGHT.borrow_ref_mut(cs), 1500.0);
+                    // Ignore any subsequent throttle commands that may have already been received
+                    throttle_command_channel.clear();
+                    // Set the safety light to solid
+                    safety_light_mode_signal.signal(esda_safety_light::SafetyLightMode::On);
+                    // Stop listening for further throttle commands
+                    return
                 }
                 // Simple throttle changes can be applied as-is, provided the escs are armed
                 ThrottleCommand::SetThrottleLeft { new_throttle } => {
