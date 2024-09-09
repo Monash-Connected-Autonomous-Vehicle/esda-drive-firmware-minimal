@@ -12,7 +12,7 @@ use embassy_time::Timer;
 use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
-    gpio::{GpioPin, Input, Io, Pull},
+    gpio::{GpioPin, Input, Io, Level, Output, Pull},
     mcpwm::{operator::PwmPinConfig, timer::PwmWorkingMode, McPwm, PeripheralClockConfig},
     peripherals::Peripherals,
     prelude::*,
@@ -122,29 +122,18 @@ async fn main(spawner: Spawner) {
 
     println!("MAIN: Initialising Safety Light");
     let safety_light_pwm_clock_cfg = PeripheralClockConfig::with_frequency(&clocks, 20.kHz()).unwrap();
-    // Set up PWM driver for safety light
-    let mut safety_light_mcpwm = McPwm::new(peripherals.MCPWM1, safety_light_pwm_clock_cfg);
-    let safety_light_pin: GpioPin<{ esda_safety_light::SAFETY_LIGHT_PIN }> =
-        GpioPin::<{ esda_safety_light::SAFETY_LIGHT_PIN }>;
-    // Link operator for safety light
-    safety_light_mcpwm.operator2.set_timer(&safety_light_mcpwm.timer2);
-    // Initialise Driver Handle
-    let safety_light_driver = safety_light_mcpwm.operator2.with_pin_a(safety_light_pin, PwmPinConfig::UP_ACTIVE_HIGH);
-    // Configure timer
-    // With this clock configuration the period equates to the period in miliseconds
-    let safety_light_pwm_clock_config = safety_light_pwm_clock_cfg.timer_clock_with_prescaler(500, PwmWorkingMode::Increase, 79);
-    // Start the pwm driver with the given clock configuration
-    safety_light_mcpwm.timer2.start(safety_light_pwm_clock_config);
+    // Initialise Handle to Safety Light
+    let safety_light_driver = Output::new(GpioPin::<{ esda_safety_light::SAFETY_LIGHT_PIN }>, Level::Low);
 
     // Store handle to the safety light driver in a mutex
     critical_section::with(|cs| {
-        esda_safety_light::SAFETY_LIGHT_PWM_HANDLE
+        esda_safety_light::SAFETY_LIGHT_HANDLE
             .borrow_ref_mut(cs)
             .replace(safety_light_driver);
     });
 
     // Signal for setting mode of safety light from other tasks
-    static SAFETY_LIGHT_SIGNAL: StaticCell<Signal<NoopRawMutex, esda_safety_light::SafetyLightMode>> =
+    static SAFETY_LIGHT_SIGNAL: StaticCell<Signal<NoopRawMutex, Level>> =
     StaticCell::new();
     let safety_light_signal = &*SAFETY_LIGHT_SIGNAL.init(Signal::new());
 

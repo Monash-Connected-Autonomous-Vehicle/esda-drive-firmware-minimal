@@ -8,9 +8,7 @@ use critical_section::Mutex;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, signal::Signal};
 use esp_backtrace as _;
 use esp_hal::{
-    peripherals::UART1,
-    uart::{UartRx, UartTx},
-    Async,
+    gpio::Level, peripherals::UART1, uart::{UartRx, UartTx}, Async
 };
 use esp_println::println;
 
@@ -99,7 +97,7 @@ pub(crate) async fn serial_forwarding_writer(
 pub(crate) async fn serial_reader(
     mut rx: UartRx<'static, UART1, Async>,
     throttle_command_channel: &'static Channel<NoopRawMutex, esda_throttle::ThrottleCommand, {esda_throttle::COMMAND_BUFFER_SIZE}>,
-    safety_light_mode_signal: &'static Signal<NoopRawMutex, esda_safety_light::SafetyLightMode>
+    safety_light_mode_signal: &'static Signal<NoopRawMutex, Level>
 ) {
     const MAX_BUFFER_SIZE: usize = 10 * READ_BUF_SIZE + 16;
 
@@ -159,11 +157,11 @@ pub(crate) async fn serial_reader(
                                         0 => {
                                             println!("WIRELESS_RECEIVER: Recieved signal to disengage autonomous mode!");
                                             // Turn safety light to solid
-                                            safety_light_mode_signal.signal(esda_safety_light::SafetyLightMode::On);
+                                            safety_light_mode_signal.signal(Level::Low);
                                         },
                                         1 => {
                                             println!("WIRELESS_RECEIVER: Recieved signal to engage autonomous mode!");
-                                            safety_light_mode_signal.signal(esda_safety_light::SafetyLightMode::Blink);
+                                            safety_light_mode_signal.signal(Level::High);
                                         },
                                         _ => {
                                             println!("WIRELESS_RECEIVER<WARN>: Recieved change to autonomous mode but the value is neither 0 nor 1");

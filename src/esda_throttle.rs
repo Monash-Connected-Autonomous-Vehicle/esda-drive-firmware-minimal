@@ -11,7 +11,7 @@ use critical_section::Mutex;
 use embassy_executor::task;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, signal::Signal};
 use embassy_time::{Duration, Timer};
-use esp_hal::{gpio::{GpioPin, Input, InputPin}, mcpwm::operator::PwmPin};
+use esp_hal::{gpio::{GpioPin, Input, InputPin, Level}, mcpwm::operator::PwmPin};
 use esp_println::println;
 
 use crate::{esda_interface, esda_safety_light, esda_serial, pwm_extension::PwmPinExtension};
@@ -58,7 +58,7 @@ pub static THROTTLE_PWM_HANDLE_RIGHT: Mutex<
 #[task]
 pub async fn throttle_driver(
     throttle_command_channel: &'static Channel<NoopRawMutex, ThrottleCommand, {COMMAND_BUFFER_SIZE}>,
-    safety_light_mode_signal: &'static Signal<NoopRawMutex, esda_safety_light::SafetyLightMode>
+    safety_light_mode_signal: &'static Signal<NoopRawMutex, Level>
 ) {
     // Start by sending ourselves a signal to arm the escs
     throttle_command_channel.send(ThrottleCommand::ArmESCs).await;
@@ -88,7 +88,7 @@ pub async fn throttle_driver(
                     // Ignore any subsequent throttle commands that may have already been received
                     throttle_command_channel.clear();
                     // Set the safety light to solid
-                    safety_light_mode_signal.signal(esda_safety_light::SafetyLightMode::On);
+                    safety_light_mode_signal.signal(Level::Low);
                     // Stop listening for further throttle commands
                     return
                 }

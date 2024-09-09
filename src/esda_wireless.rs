@@ -3,6 +3,7 @@
 // Authors: BMCG0011, Samuel Tri
 use embassy_executor::task;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, signal::Signal};
+use esp_hal::gpio::Level;
 use esp_println::println;
 use esp_wifi::esp_now::{EspNow, PeerInfo, BROADCAST_ADDRESS};
 
@@ -15,7 +16,7 @@ pub async fn wireless_receiver(
     mut esp_now: EspNow<'static>,
     throttle_command_channel: &'static Channel<NoopRawMutex, esda_throttle::ThrottleCommand, {esda_throttle::COMMAND_BUFFER_SIZE}>,
     serial_forwarding_signal: &'static Channel<NoopRawMutex, esda_interface::ESDAMessage, {esda_serial::SERIAL_FORWARDING_BUFFER_SIZE}>,
-    safety_light_mode_signal: &'static Signal<NoopRawMutex, esda_safety_light::SafetyLightMode>
+    safety_light_mode_signal: &'static Signal<NoopRawMutex, Level>
 ) {
     loop {
         // Wait until we receive an espnow packet
@@ -98,12 +99,12 @@ pub async fn wireless_receiver(
                             match message.data {
                                 0 => {
                                     println!("WIRELESS_RECEIVER: Recieved signal to disengage autonomous mode!");
-                                    // Turn safety light to solid
-                                    safety_light_mode_signal.signal(esda_safety_light::SafetyLightMode::On);
+                                    // Turn safety light off
+                                    safety_light_mode_signal.signal(Level::Low);
                                 },
                                 1 => {
                                     println!("WIRELESS_RECEIVER: Recieved signal to engage autonomous mode!");
-                                    safety_light_mode_signal.signal(esda_safety_light::SafetyLightMode::Blink);
+                                    safety_light_mode_signal.signal(Level::High);
                                 },
                                 _ => {
                                     println!("WIRELESS_RECEIVER<WARN>: Recieved change to autonomous mode but the value is neither 0 nor 1");
