@@ -27,12 +27,13 @@ pub enum SafetyLightMode {
 pub async fn safety_light_handler(safety_light_mode_signal: &'static Signal<NoopRawMutex, Level>) {
     // Default to SafetyLightMode::On
     critical_section::with(|cs| {
-        if let Some(mut safety_light_pwm_handle) = SAFETY_LIGHT_HANDLE.borrow_ref_mut(cs).take() {
+        let mut safety_light_handle_cell = SAFETY_LIGHT_HANDLE.borrow_ref_mut(cs);
+        if let Some(mut safety_light_pwm_handle) = safety_light_handle_cell.take() {
             // 100% Duty Cycle
             safety_light_pwm_handle.set_level(Level::High);
 
             // Restore the mutex
-            SAFETY_LIGHT_HANDLE.replace(cs, Some(safety_light_pwm_handle));
+            safety_light_handle_cell.replace(safety_light_pwm_handle);
         }
     });
 
@@ -42,11 +43,12 @@ pub async fn safety_light_handler(safety_light_mode_signal: &'static Signal<Noop
 
         // Apply it
         critical_section::with(|cs| {
-            if let Some(mut safety_light_pwm_handle) = SAFETY_LIGHT_HANDLE.borrow_ref_mut(cs).take() {
+            let mut safety_light_handle_cell = SAFETY_LIGHT_HANDLE.borrow_ref_mut(cs);
+            if let Some(mut safety_light_pwm_handle) = safety_light_handle_cell.take() {
                 safety_light_pwm_handle.set_level(new_mode);
 
                 // Restore the mutex
-                SAFETY_LIGHT_HANDLE.replace(cs, Some(safety_light_pwm_handle));
+                safety_light_handle_cell.replace(safety_light_pwm_handle);
             }
         });
     }
