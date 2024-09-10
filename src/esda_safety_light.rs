@@ -5,7 +5,7 @@ use embassy_executor::task;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use esp_hal::{gpio::{GpioPin, Level, Output}, mcpwm::operator::PwmPin};
 
-pub const SAFETY_LIGHT_PIN: u8 = 10;
+pub const SAFETY_LIGHT_PIN: u8 = 27;
 pub const SAFETY_LIGHT_ON_TIMESTAMP: u16 = 1000;
 pub const SAFETY_LIGHT_BLINK_TIMESTAMP: u16 = 500;
 pub const SAFETY_LIGHT_OFF_TIMESTAMP: u16 = 0;
