@@ -121,7 +121,6 @@ async fn main(spawner: Spawner) {
     println!("Encoders Initialised...");
 
     println!("MAIN: Initialising Safety Light");
-    let safety_light_pwm_clock_cfg = PeripheralClockConfig::with_frequency(&clocks, 20.kHz()).unwrap();
     // Initialise Handle to Safety Light
     let safety_light_driver = Output::new(GpioPin::<{ esda_safety_light::SAFETY_LIGHT_PIN }>, Level::Low);
 
