@@ -25,6 +25,8 @@ pub enum SafetyLightMode {
 
 #[task]
 pub async fn safety_light_handler(safety_light_mode_signal: &'static Signal<NoopRawMutex, Level>) {
+    
+
     // Default to SafetyLightMode::On
     critical_section::with(|cs| {
         let mut safety_light_handle_cell = SAFETY_LIGHT_HANDLE.borrow_ref_mut(cs);

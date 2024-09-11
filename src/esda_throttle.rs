@@ -86,9 +86,12 @@ pub async fn throttle_driver(
                     // Set right pwm to neutral
                     set_pwm_microseconds(THROTTLE_PWM_HANDLE_RIGHT.borrow_ref_mut(cs), 1500.0);
                     // Ignore any subsequent throttle commands that may have already been received
-                    throttle_command_channel.clear();
-                    // Set the safety light to solid
-                    safety_light_mode_signal.signal(Level::Low);
+
+                    THROTTLE_PWM_HANDLE_LEFT.borrow_ref_mut(cs).take();  // Disable the left motor
+                    THROTTLE_PWM_HANDLE_RIGHT.borrow_ref_mut(cs).take(); // Disable the right motor
+                    // throttle_command_channel.clear();
+                    // // Set the safety light to solid
+                    // safety_light_mode_signal.signal(Level::Low);
                     // Stop listening for further throttle commands
                     return
                 }
